@@ -12,12 +12,12 @@ The resulting folder is Builds/OnlinePlaytest. Put its contents into a private G
 3. Select Docker and the Free plan for the first short test, if offered. Do not choose paid services without deciding a budget.
 4. Set health check path to /health. The Dockerfile reads Render's PORT.
 5. When deployment succeeds, open the generated HTTPS URL.
-6. Both players enter London → Menu → Play with friends. The browser build automatically uses its own server address. One creates a room; the other joins its eight-character code.
+6. Players enter London and automatically join an available public session. No server address or room code is needed. Each session has at most 12 players; overflow starts another session.
 7. Verify movement, jumping, names, appearance and credits. Separately test phone loading, touch movement, camera and Jump.
 
 A domain is not needed. Free Render services sleep after inactivity. Rooms and online scores reset on restart; feedback files also do not survive replacement without persistent storage. For durable feedback, use a paid disk or external database. MINIUK_DATA_DIR configures the feedback storage directory.
 
-Opt-in room voice is available in the browser build as an unverified private-playtest feature. Train, police, bridge and vehicle animations are local. No production accounts, moderation or anti-cheat yet.
+Opt-in nearby voice is available in the browser build as an unverified private-playtest feature. Train, police, bridge and vehicle animations are local. No production accounts, moderation or anti-cheat yet.
 
 References:
 https://render.com/docs/web-services
@@ -27,11 +27,11 @@ https://render.com/docs/free
 
 ## Browser room voice test
 
-After both players join the same London room, open **Room voice** at the top left.
+After players enter London, open **Nearby voice** at the top left.
 Click **Enable voice**, allow the microphone, then click **Unmute mic**. Each player must do this.
 Use headphones. The panel shows connected peers, a listening volume slider and a playback button if the browser blocks incoming audio.
 Mute silences the outgoing track. Turn voice off releases the microphone. Leaving the room, changing city, closing the page or hiding the tab also stops capture; returning requires enabling voice again.
-This is whole-room audio, not proximity audio. No audio is recorded by Mini UK. Peer-to-peer connections may reveal network addresses to other room participants. Never publish session tokens or TURN secrets.
+Audio is full volume within 5 metres, fades to zero at 25 metres, and peer connections close outside that range. Distance updates arrive once per second. Only players in the same public session can see/hear one another. No audio is recorded by Mini UK. Peer-to-peer connections may reveal network addresses to other room participants. Never publish session tokens or TURN secrets.
 Start with two players on different networks. Verify both directions, mute, stop, deny permission and rejoin. Editor/native builds do not include browser voice. Twelve-player audio load has not been tested.
 
 ### Relay setup for different networks

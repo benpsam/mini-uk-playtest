@@ -4,7 +4,7 @@
 let session=null, generation=0, stream=null, timer=null, epoch='', ack=0, muted=true, pending=false;
 let config=null, peers=new Map(), errors=0;
 const panel=document.createElement('details');panel.id='voice-panel';panel.hidden=true;
-panel.innerHTML='<summary>Room voice <span id="voice-badge">Off</span></summary><div class="voice-controls"><p id="voice-status" role="status" aria-live="polite">Enable voice to talk with people in this room.</p><button id="voice-enable" type="button">Enable voice</button><button id="voice-mute" type="button" hidden>Unmute mic</button><button id="voice-stop" type="button" hidden>Turn voice off</button><button id="voice-hear" type="button" hidden>Play incoming audio</button><label>Listening volume <input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><p class="voice-note">Room audio · use headphones. No audio is recorded by Mini UK. Direct calls share network addresses with room participants.</p></div>';
+panel.innerHTML='<summary>Nearby voice <span id="voice-badge">Off</span></summary><div class="voice-controls"><p id="voice-status" role="status" aria-live="polite">Enable voice to talk with players within 25 metres.</p><button id="voice-enable" type="button">Enable voice</button><button id="voice-mute" type="button" hidden>Unmute mic</button><button id="voice-stop" type="button" hidden>Turn voice off</button><button id="voice-hear" type="button" hidden>Play incoming audio</button><label>Listening volume <input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><p class="voice-note">Nearby audio · use headphones. No audio is recorded by Mini UK. Direct calls share network addresses with nearby participants.</p></div>';
 document.getElementById('stage').appendChild(panel);
 const get=id=>document.getElementById(id), status=text=>get('voice-status').textContent=text;
 function controls(){get('voice-enable').hidden=!!stream;get('voice-enable').disabled=pending;get('voice-mute').hidden=!stream;get('voice-stop').hidden=!stream&&!pending;get('voice-mute').textContent=muted?'Unmute mic':'Mute mic';get('voice-mute').setAttribute('aria-pressed',String(!muted));get('voice-badge').textContent=stream?(muted?'Muted':'Mic on'):'Off';}
@@ -26,13 +26,13 @@ function alive(g){return g===generation&&!!stream&&!!session;}
 function report(){
  const connected=[...peers.values()].filter(p=>p.pc.connectionState==='connected').length;
  const failed=[...peers.values()].some(p=>p.pc.connectionState==='failed'||p.pc.connectionState==='disconnected');
- status(failed?'A voice connection dropped. Turn voice off and on to retry.':`${connected} voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
+ status(failed?'A nearby voice connection dropped. Turn voice off and on to retry.':`${connected} nearby voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
 }
 function makePeer(person,g){
  drop(person.id);
  const pc=new RTCPeerConnection({iceServers:config.iceServers});
- const audio=document.createElement('audio');audio.autoplay=true;audio.setAttribute('playsinline','');audio.volume=Number(get('voice-volume').value);panel.appendChild(audio);
- const peer={pc,audio,epoch:person.epoch};peers.set(person.id,peer);
+ const audio=document.createElement('audio');audio.autoplay=true;audio.setAttribute('playsinline','');audio.volume=0;panel.appendChild(audio);
+ const peer={pc,audio,epoch:person.epoch,gain:Math.max(0,Math.min(1,(25-person.distance)/20))};audio.volume=peer.gain*Number(get('voice-volume').value);peers.set(person.id,peer);
  stream.getTracks().forEach(track=>pc.addTrack(track,stream));
  pc.ontrack=event=>{if(!alive(g))return;audio.srcObject=event.streams[0]||new MediaStream([event.track]);audio.play().catch(()=>{if(alive(g))get('voice-hear').hidden=false;});};
  pc.onconnectionstatechange=()=>{if(alive(g))report();};return peer;
@@ -57,7 +57,7 @@ async function poll(g){
  try{
   const data=await request('/voice/poll',{ack});if(!alive(g))return;errors=0;
   const present=new Map(data.peers.map(p=>[p.id,p]));
-  for(const [id,peer] of peers)if(!present.has(id)||present.get(id).epoch!==peer.epoch)drop(id);
+  for(const [id,peer] of peers){if(!present.has(id)||present.get(id).epoch!==peer.epoch){drop(id);continue;}peer.gain=Math.max(0,Math.min(1,(25-present.get(id).distance)/20));peer.audio.volume=peer.gain*Number(get('voice-volume').value);}
   for(const message of data.messages){
    if(!alive(g))return;
    const person=present.get(message.sender);
@@ -99,10 +99,10 @@ async function enable(){
 get('voice-enable').onclick=enable;
 get('voice-stop').onclick=()=>stop();
 get('voice-mute').onclick=()=>{muted=!muted;stream?.getAudioTracks().forEach(track=>track.enabled=!muted);controls();report();};
-get('voice-volume').oninput=()=>peers.forEach(peer=>peer.audio.volume=Number(get('voice-volume').value));
+get('voice-volume').oninput=()=>peers.forEach(peer=>peer.audio.volume=peer.gain*Number(get('voice-volume').value));
 get('voice-hear').onclick=async()=>{try{await Promise.all([...peers.values()].map(peer=>peer.audio.play()));get('voice-hear').hidden=true;}catch{status('Incoming audio is blocked by the browser. Tap Play incoming audio again.');}};
 // Losing the tab always stops capture; returning never silently re-enables it.
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&(stream||pending))stop('Voice paused while away. Enable voice when you return.');});
 window.addEventListener('pagehide',()=>{stop();session=null;});
-window.MiniUKVoice={session(endpoint,token,id){stop();session={endpoint:endpoint.replace(/\/$/,''),token,id};panel.hidden=false;status('Enable voice to talk with people in this room.');},leave(){stop();session=null;panel.hidden=true;}};
+window.MiniUKVoice={session(endpoint,token,id){stop();session={endpoint:endpoint.replace(/\/$/,''),token,id};panel.hidden=false;status('Enable voice to talk with players within 25 metres.');},leave(){stop();session=null;panel.hidden=true;}};
 })();

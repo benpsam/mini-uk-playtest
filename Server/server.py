@@ -72,7 +72,11 @@ class Rooms:
                 if not isinstance(code, str):
                     raise Rejected(400, 'Invalid room code.')
                 code = code.strip().upper()
+                public = data.get('publicSession') is True
                 create = data.get('create') is True
+                if public:
+                    code = next((c for c,r in self.rooms.items() if len(r) < 12 and next(iter(r.values())).get('publicSession')), '')
+                    create = not bool(code)
                 state = self.state(data)
                 if create:
                     if len(self.rooms) >= 100:
@@ -85,7 +89,7 @@ class Rooms:
                 if len(self.rooms.get(code, {})) >= 12:
                     raise Rejected(409, 'This room is full (12 players).')
                 token = secrets.token_urlsafe(32)
-                player = dict(state, id=secrets.token_hex(8), name=name.strip(), room=code, seen=now, last=0, credits=0, coins=[])
+                player = dict(state, id=secrets.token_hex(8), name=name.strip(), room=code, seen=now, last=0, credits=0, coins=[], publicSession=public)
                 self.rooms.setdefault(code, {})[token] = player
                 self.sessions[token] = player
                 return dict(token=token, id=player['id'], room=code, players=self.snapshot(code))
@@ -116,7 +120,7 @@ class Rooms:
             return dict(room=player['room'], players=self.snapshot(player['room']))
 
     def snapshot(self, code):
-        return [{k: v for k, v in p.items() if k not in ('room', 'seen', 'last')} for p in self.rooms[code].values()]
+        return [{k: v for k, v in p.items() if k not in ('room', 'seen', 'last', 'publicSession')} for p in self.rooms[code].values()]
 
 
 class Handler(BaseHTTPRequestHandler):
