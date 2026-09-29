@@ -45,3 +45,7 @@ Set these **Render environment secrets**, not repository files:
 The server generates one-hour credentials for authenticated room participants; it never returns the shared secret. Providers with different credential APIs need an adapter. With no configuration the UI explicitly labels this a limited-network test. Re-enable voice to refresh credentials for new connections after an hour. An external provider/account and its pricing must be chosen before setup; none is provisioned by this update.
 
 If voice cannot connect, turn it off and on after checking microphone site permission and the relay configuration. Successful signalling/unit tests do not prove that a two-device audio call works.
+
+
+## Android browser playtest
+Open the HTTPS game link in Chrome on Android. The Android browser uses a lower pixel ratio, visible movement pad and Jump / Ride / Zoom controls. Landscape is recommended. Drag the right side to look. Ride replaces keyboard F; confirmation buttons still need tapping. Nearby voice remains opt-in and needs microphone permission; moving to another app pauses it. This is a Web build, not an APK. Real Android hardware, sustained performance and two-device audio still need testing.
