@@ -8,6 +8,7 @@ import threading
 import time
 import sqlite3
 from feedback import Feedback, FeedbackError
+from voice import Voice, VoiceError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LIMITS = (2, 4, 6, 5, 6, 6, 6, 3, 4, 3, 3, 4, 2, 6)
@@ -24,6 +25,7 @@ class Rooms:
     def __init__(self, clock=time.monotonic):
         self.clock, self.lock = clock, threading.Lock()
         self.rooms, self.sessions, self.joins = {}, {}, {}
+        self.voice = Voice()
 
     def prune(self):
         now = self.clock()
@@ -91,6 +93,8 @@ class Rooms:
             if not isinstance(token, str) or token not in self.sessions:
                 raise Rejected(401, 'Session ended. Please join again.')
             player = self.sessions[token]
+            if path.startswith('/voice/'):
+                return self.voice.handle(self, path, data, token)
             if path == '/leave':
                 self.remove(token)
                 return {'ok': True}
@@ -157,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= (8192 if self.path == '/feedback' else 4096):
+            if not 0 < length <= (32768 if self.path.startswith('/voice/') else 8192 if self.path == '/feedback' else 4096):
                 raise Rejected(413, 'Request too large or empty.')
             data = json.loads(self.rfile.read(length))
             if not isinstance(data, dict):
@@ -165,10 +169,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/feedback':
                 self.reply(200, self.server.feedback.submit(data, self.client_address[0]))
                 return
-            if self.path not in ('/join', '/sync', '/leave'):
+            if self.path not in ('/join', '/sync', '/leave', '/voice/join', '/voice/poll', '/voice/signal', '/voice/leave'):
                 raise Rejected(404, 'Unknown request.')
             self.reply(200, self.server.rooms.handle(self.path, data, self.client_address[0]))
-        except (Rejected, FeedbackError) as error:
+        except (Rejected, FeedbackError, VoiceError) as error:
             self.reply(error.status, {'error': error.message})
         except (ValueError, TypeError, UnicodeError):
             self.reply(400, {'error': 'Invalid request.'})

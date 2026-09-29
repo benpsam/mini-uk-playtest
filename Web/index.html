@@ -17,12 +17,13 @@
 .primary:hover{background:#defa9b;transform:translateY(-2px)}
 .card{border-radius:14px;border-color:#30384a}.destinations{background:#0e1018}.card header,.card .soon,.card button{background:#151b29ed}
 .card button{color:#ccf56b}.badge{background:#111722ee;color:#ccf56b}
+#voice-panel{position:absolute;z-index:40;left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top));max-width:min(330px,calc(100vw - 24px));background:#151b29f5;border:1px solid #596477;border-radius:18px;color:#f5f5fc;font-size:14px;box-shadow:0 6px 20px #0005}#voice-panel summary{cursor:pointer;padding:12px 16px;font-weight:700}#voice-badge{color:#ccf56b;margin-left:8px}.voice-controls{padding:0 14px 14px}.voice-controls button{border:0;border-radius:18px;padding:10px 14px;background:#ccf56b;color:#10151b;margin:4px 4px 6px 0;font-weight:700}.voice-controls p{margin:6px 0 10px}.voice-controls label{display:block}.voice-controls input{width:100%;accent-color:#ccf56b}.voice-controls .voice-note{font-size:11px;color:#b8c4ce}.voice-controls button:disabled{opacity:.55}
 </style>
 </head>
 <body>
 <main class="welcome" id="welcome">
 <section class="hero" aria-label="Mini UK world map">
-<div class="sidebar"><div class="brand"><strong>MINI UK</strong><span>MEET · TALK · EXPLORE</span></div><div class="eyebrow">A little world to explore</div><h1>Your city.<br>Your kind of night.</h1><p>A riverside stroll, a café stop, or a landmark view. Choose where your evening begins.</p><button class="primary" id="play">Drop into London →</button><p class="meta">18+ · confirmation required at entry<br>London multiplayer playtest · voice coming later.</p></div>
+<div class="sidebar"><div class="brand"><strong>MINI UK</strong><span>MEET · TALK · EXPLORE</span></div><div class="eyebrow">A little world to explore</div><h1>Your city.<br>Your kind of night.</h1><p>A riverside stroll, a café stop, or a landmark view. Choose where your evening begins.</p><button class="primary" id="play">Drop into London →</button><p class="meta">18+ · confirmation required at entry<br>London multiplayer · optional room voice.</p></div>
 <div class="map" role="img" aria-label="Concept illustration of a miniature UK, with London, Manchester, Liverpool, Leeds, Scotland and Wales"><span class="badge">Six destinations. One growing world.</span></div>
 </section>
 <section class="destinations" aria-label="Choose a destination">
@@ -32,11 +33,12 @@
 <article class="card"><div class="card-art" style="--i:3"></div><header>Leeds</header><div class="soon">Travel via the in-game map</div></article>
 <article class="card"><div class="card-art" style="--i:4"></div><header>Scotland</header><div class="soon">Travel via the in-game map</div></article>
 <article class="card"><div class="card-art" style="--i:5"></div><header>Wales</header><div class="soon">Travel via the in-game map</div></article>
-</section><p class="footnote">Concept artwork shown. All six destinations are early playable 3D prototypes. London supports private multiplayer rooms. Voice and text chat are not available yet.</p>
+</section><p class="footnote">Concept artwork shown. All six destinations are early playable 3D prototypes. London supports private multiplayer rooms. Room voice is an opt-in browser playtest; text chat is not available yet.</p>
 </main>
 <div id="stage"><canvas id="game" tabindex="0" aria-label="Mini UK game. WASD to walk, Shift to run, drag or use arrow keys to rotate the camera, Escape for menu."></canvas></div>
 <div id="loading" role="status" aria-live="polite"><div class="load-card"><h2 id="status">Getting London ready…</h2><progress id="progress" max="1" value="0"></progress><p>The first visit takes longer while the world downloads.</p><p id="error"></p><button id="retry" hidden>Try again</button></div></div>
 <button id="full" type="button">Fullscreen</button>
+<script src="voice.js"></script>
 <script>
 let started=false, instance;
 const canvas=document.getElementById('game'),loading=document.getElementById('loading');
@@ -62,6 +64,6 @@ function start(){
 document.getElementById('play').addEventListener('click',start);
 document.getElementById('play-card').addEventListener('click',start);
 document.getElementById('retry').addEventListener('click',()=>location.reload());
-document.getElementById('full').addEventListener('click',()=>{if(instance)instance.SetFullscreen(1);});
+document.getElementById('full').addEventListener('click',()=>{if(instance){const stage=document.getElementById('stage');if(stage.requestFullscreen)stage.requestFullscreen().catch(()=>{});else instance.SetFullscreen(1);}});
 </script>
 </body></html>
