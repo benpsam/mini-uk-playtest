@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#112b35"><title>Mini UK — Explore six destinations</title>
+<style>
+:root{color-scheme:dark;--cream:#f9e5bf;--gold:#dcb474;--sea:#112b35}*{box-sizing:border-box}body{margin:0;background:var(--sea);color:var(--cream);font:16px/1.5 system-ui,sans-serif}button{font:inherit;cursor:pointer}button:focus-visible{outline:3px solid white;outline-offset:4px}button:disabled{cursor:default}.welcome{min-height:100svh;display:flex;flex-direction:column}.hero{position:relative;display:grid;grid-template-columns:310px 1fr;min-height:65svh;flex:1;background:#204753}.map{position:relative;overflow:hidden;background-image:url(map.png);background-size:127.4% 154.55%;background-position:right top;background-repeat:no-repeat;min-height:390px}.sidebar{position:relative;padding:30px 26px;background:linear-gradient(145deg,#183743,#102732);z-index:1}.brand{padding:8px 18px 12px;background:linear-gradient(#775036,#4f3324);box-shadow:0 6px 0 #39251b;border:2px solid #ad8257;transform:rotate(-1deg);border-radius:12px;text-shadow:0 4px #50311e}.brand strong{display:block;font-size:57px;line-height:1.12;letter-spacing:1px}.brand span{font-size:13px;font-weight:800;letter-spacing:1.2px}.eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:11px;color:#b2c8c9;margin-top:35px}h1{font-size:28px;line-height:1.2;margin:10px 0 18px}p{color:#d3dedd;font-size:14px}.primary{width:100%;border:1px solid #efd6a7;border-radius:8px;background:linear-gradient(#f3d69a,#d1a35b);color:#38271a;font-weight:800;padding:16px;box-shadow:0 4px #805b36;font-size:18px}.meta{font-size:12px;color:#b2c8c9;margin:16px 0 0}.badge{position:absolute;right:20px;top:20px;padding:7px 12px;border-radius:20px;background:#102a35e8;font-size:12px}.destinations{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;padding:18px 18px 8px;background:#102731}.card{position:relative;height:190px;border:1px solid #44606a;border-radius:10px;overflow:hidden;background:#254653}.card:first-child{border:2px solid var(--gold)}.card-art{height:100%;background-image:url(map.png);background-size:600% 284%;background-position:calc(var(--i)*20%) bottom}.card header{position:absolute;top:0;left:0;right:0;padding:8px 12px;font-weight:750;background:#10232ce8}.card button,.card .soon{position:absolute;bottom:0;left:0;right:0;width:100%;background:#10232cef;color:var(--cream);border:0;padding:11px;font-size:13px}.card button{font-weight:800;color:#ffdda0}.card .soon{color:#c5d0d1}.footnote{padding:4px 20px 12px;font-size:12px;color:#a6bdc4;margin:0}#stage{position:fixed;inset:0;display:none;background:#112b35}#stage.active{display:block}canvas{width:100%;height:100%;display:block;touch-action:none;outline:none}#loading{position:fixed;inset:0;background:#102832f5;display:none;place-items:center;z-index:5}.load-card{max-width:420px;padding:28px;text-align:center}progress{accent-color:#dcb474;width:100%;height:12px}#error{white-space:pre-wrap;color:#ffcbbd;font-size:14px}#retry{margin-top:16px;padding:10px 20px}#full{position:fixed;right:16px;bottom:16px;background:#112b35dd;color:var(--cream);border:1px solid #87998b;border-radius:6px;padding:8px 12px;display:none;font-size:12px}
+@media(max-width:900px){.hero{grid-template-columns:260px 1fr}.sidebar{padding:24px 18px}.brand strong{font-size:49px}.destinations{grid-template-columns:repeat(3,minmax(0,1fr))}.card{height:155px}}
+@media(max-width:580px){.hero{display:flex;flex-direction:column}.sidebar{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:center}.brand strong{font-size:40px}.brand span{font-size:9px}.sidebar h1,.sidebar p:not(.meta),.eyebrow{display:none}.meta{grid-column:1/-1;margin:0}.map{min-height:290px}.destinations{gap:8px;padding:12px}.card{height:130px}.card header{font-size:12px;padding:7px}.card button,.card .soon{font-size:11px;padding:8px}}
+[hidden]{display:none!important}#stage{z-index:10}#loading{z-index:20}#full{z-index:30}
+/* Shared visual direction with the in-game menus. */
+:root{--cream:#f5f5fc;--gold:#ccf56b;--sea:#0e1018}
+.sidebar{background:linear-gradient(145deg,#202536,#121722)}
+.brand{background:transparent;box-shadow:none;border:0;transform:none;text-shadow:none;padding:0}
+.brand strong{font-size:51px;letter-spacing:-2px}.brand span{color:#b8a3ff;letter-spacing:2px}
+.primary{border:0;background:#ccf56b;color:#10151b;box-shadow:none;border-radius:14px;transition:background .15s,transform .15s}
+.primary:hover{background:#defa9b;transform:translateY(-2px)}
+.card{border-radius:14px;border-color:#30384a}.destinations{background:#0e1018}.card header,.card .soon,.card button{background:#151b29ed}
+.card button{color:#ccf56b}.badge{background:#111722ee;color:#ccf56b}
+#voice-panel{position:absolute;z-index:40;left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top));max-width:min(330px,calc(100vw - 24px));background:#151b29f5;border:1px solid #596477;border-radius:18px;color:#f5f5fc;font-size:14px;box-shadow:0 6px 20px #0005}#voice-panel summary{cursor:pointer;padding:12px 16px;font-weight:700}#voice-badge{color:#ccf56b;margin-left:8px}.voice-controls{padding:0 14px 14px}.voice-controls button{border:0;border-radius:18px;padding:10px 14px;background:#ccf56b;color:#10151b;margin:4px 4px 6px 0;font-weight:700}.voice-controls p{margin:6px 0 10px}.voice-controls label{display:block}.voice-controls input{width:100%;accent-color:#ccf56b}.voice-controls .voice-note{font-size:11px;color:#b8c4ce}.voice-controls button:disabled{opacity:.55}
+@media(pointer:coarse){#voice-panel{max-width:min(290px,calc(100vw - 24px));max-height:50dvh;overflow:auto}#voice-panel summary{min-height:44px}#full{min-height:44px;bottom:auto;top:12px;right:12px}#stage{height:100dvh}body{overscroll-behavior:none}.mobile-hint{grid-column:1/-1;display:block!important;font-size:13px;color:#ccf56b}} .mobile-hint{display:none}
+/* Ordered right-side voice controls, below Fullscreen, with room for the game HUD. */
+#voice-panel{left:auto;right:max(12px,env(safe-area-inset-right));top:68px;max-height:calc(100dvh - 210px);overflow:auto;width:280px;max-width:calc(100vw - 24px)}.voice-controls{display:flex;flex-direction:column;gap:8px}.voice-controls button{margin:0;min-height:44px;width:100%}#voice-mute{order:2}#voice-volume{min-height:32px}.voice-controls label{order:3}#voice-hear{order:4}#voice-stop{order:5;background:#30394c;color:white}.voice-note{order:6}@media(pointer:coarse){#voice-panel{width:220px;max-height:calc(100dvh - 190px)}#voice-panel summary{font-size:14px;padding:10px 12px}.voice-controls{padding:0 12px 12px}}
+</style>
+</head>
+<body>
+<main class="welcome" id="welcome">
+<section class="hero" aria-label="Mini UK world map">
+<div class="sidebar"><div class="brand"><strong>MINI UK</strong><span>MEET · TALK · EXPLORE</span></div><div class="eyebrow">A little world to explore</div><h1>Your city.<br>Your kind of night.</h1><p>A riverside stroll, a café stop, or a landmark view. Choose where your evening begins.</p><button class="primary" id="play">Drop into London →</button><p class="meta">18+ · confirmation required at entry<br>Public London · optional nearby voice.</p><p class="mobile-hint">Phone controls: turn sideways for more space. Use the left pad to move, drag on the right to look, and tap Jump or Ride.</p></div>
+<div class="map" role="img" aria-label="Concept illustration of a miniature UK, with London, Manchester, Liverpool, Leeds, Scotland and Wales"><span class="badge">Six destinations. One growing world.</span></div>
+</section>
+<section class="destinations" aria-label="Choose a destination">
+<article class="card"><div class="card-art" style="--i:0"></div><header>London</header><button id="play-card">Drop into London →</button></article>
+<article class="card"><div class="card-art" style="--i:1"></div><header>Manchester</header><div class="soon">Travel via the in-game map</div></article>
+<article class="card"><div class="card-art" style="--i:2"></div><header>Liverpool</header><div class="soon">Travel via the in-game map</div></article>
+<article class="card"><div class="card-art" style="--i:3"></div><header>Leeds</header><div class="soon">Travel via the in-game map</div></article>
+<article class="card"><div class="card-art" style="--i:4"></div><header>Scotland</header><div class="soon">Travel via the in-game map</div></article>
+<article class="card"><div class="card-art" style="--i:5"></div><header>Wales</header><div class="soon">Travel via the in-game map</div></article>
+</section><p class="footnote">Concept artwork shown. All six destinations are early playable 3D prototypes. London connects players automatically. Nearby voice is an opt-in browser playtest; text chat is not available yet.</p>
+</main>
+<div id="stage"><canvas id="game" tabindex="0" aria-label="Mini UK game. WASD to walk, Shift to run, drag or use arrow keys to rotate the camera, Escape for menu."></canvas></div>
+<div id="loading" role="status" aria-live="polite"><div class="load-card"><h2 id="status">Getting London ready…</h2><progress id="progress" max="1" value="0"></progress><p>The first visit takes longer while the world downloads.</p><p id="error"></p><button id="retry" hidden>Try again</button></div></div>
+<button id="full" type="button">Fullscreen</button>
+<script src="voice.js"></script>
+<script>
+let started=false, instance;
+const canvas=document.getElementById('game'),loading=document.getElementById('loading');
+function fail(message){loading.style.display='grid';document.getElementById('status').textContent='London could not load';document.getElementById('error').textContent=String(message);document.getElementById('retry').hidden=false;}
+function start(){
+ if(started)return;
+ started=true; loading.style.display='grid';
+ if(location.protocol==='file:'){fail('Open this game from its website link, not by double-clicking index.html.');return;}
+ if(!document.createElement('canvas').getContext('webgl2')){fail('This browser needs WebGL 2 graphics support. Try an up-to-date Safari, Chrome, Edge or Firefox.');return;}
+ const script=document.createElement('script'); script.src='Build/{{{ LOADER_FILENAME }}}';
+ script.onerror=()=>fail('The game files could not download. Check your connection and try again.');
+ script.onload=()=>{
+  document.getElementById('stage').classList.add('active');
+  createUnityInstance(canvas,{
+   dataUrl:'Build/{{{ DATA_FILENAME }}}',frameworkUrl:'Build/{{{ FRAMEWORK_FILENAME }}}',codeUrl:'Build/{{{ CODE_FILENAME }}}',
+   streamingAssetsUrl:'StreamingAssets',companyName:'MiniUK',productName:'Mini UK',productVersion:'0.1',showBanner:(message,type)=>{if(type==='error')fail(message);},devicePixelRatio:matchMedia('(pointer:coarse)').matches?1:Math.min(window.devicePixelRatio||1,1.5)
+  },progress=>{document.getElementById('progress').value=progress;}).then(game=>{
+   instance=game;window.MiniUKVoice?.ready();loading.style.display='none';document.getElementById('welcome').hidden=true;
+   document.getElementById('full').style.display='block';canvas.focus();
+  }).catch(fail);
+ };document.body.appendChild(script);
+}
+document.getElementById('play').addEventListener('click',start);
+document.getElementById('play-card').addEventListener('click',start);
+document.getElementById('retry').addEventListener('click',()=>location.reload());
+document.getElementById('full').addEventListener('click',()=>{if(instance){const stage=document.getElementById('stage');if(stage.requestFullscreen)stage.requestFullscreen().catch(()=>{});else instance.SetFullscreen(1);}});
+</script>
+</body></html>
