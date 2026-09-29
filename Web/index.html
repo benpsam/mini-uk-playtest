@@ -51,12 +51,12 @@ function start(){
  started=true; loading.style.display='grid';
  if(location.protocol==='file:'){fail('Open this game from its website link, not by double-clicking index.html.');return;}
  if(!document.createElement('canvas').getContext('webgl2')){fail('This browser needs WebGL 2 graphics support. Try an up-to-date Safari, Chrome, Edge or Firefox.');return;}
- const script=document.createElement('script'); script.src='Build/{{{ LOADER_FILENAME }}}';
+ const script=document.createElement('script'); script.src='Build/Web.loader.js';
  script.onerror=()=>fail('The game files could not download. Check your connection and try again.');
  script.onload=()=>{
   document.getElementById('stage').classList.add('active');
   createUnityInstance(canvas,{
-   dataUrl:'Build/{{{ DATA_FILENAME }}}',frameworkUrl:'Build/{{{ FRAMEWORK_FILENAME }}}',codeUrl:'Build/{{{ CODE_FILENAME }}}',
+   dataUrl:'Build/Web.data.unityweb',frameworkUrl:'Build/Web.framework.js.unityweb',codeUrl:'Build/Web.wasm.unityweb',
    streamingAssetsUrl:'StreamingAssets',companyName:'MiniUK',productName:'Mini UK',productVersion:'0.1',showBanner:(message,type)=>{if(type==='error')fail(message);},devicePixelRatio:matchMedia('(pointer:coarse)').matches?1:Math.min(window.devicePixelRatio||1,1.5)
   },progress=>{document.getElementById('progress').value=progress;}).then(game=>{
    instance=game;window.MiniUKVoice?.ready();loading.style.display='none';document.getElementById('welcome').hidden=true;
