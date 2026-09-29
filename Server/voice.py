@@ -19,6 +19,12 @@ def ice_config(player_id):
         username = str(int(time.time()) + 3600) + ':' + player_id
         credential = base64.b64encode(hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()).decode()
         servers.append(dict(urls=urls, username=username, credential=credential))
+    elif urls and all(v.startswith(('turn:', 'turns:')) for v in urls):
+        # Provider-issued TURN credentials, not the provider's management API key.
+        username = os.environ.get('MINIUK_TURN_USERNAME', '').strip()
+        credential = os.environ.get('MINIUK_TURN_PASSWORD', '')
+        if username and credential:
+            servers.append(dict(urls=urls, username=username, credential=credential))
     return dict(iceServers=servers, relayAvailable=len(servers) > 1)
 
 def distance(a,b):
