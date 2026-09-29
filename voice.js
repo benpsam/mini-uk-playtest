@@ -3,16 +3,28 @@
 'use strict';
 let session=null, generation=0, stream=null, timer=null, epoch='', ack=0, muted=true, pending=false;
 let config=null, peers=new Map(), errors=0, audioContext=null;
+let testTone=null;
 function unlockAudio(){
  const Audio=window.AudioContext||window.webkitAudioContext;
- if(!audioContext&&Audio)audioContext=new Audio();
+ if(!audioContext&&Audio){
+  audioContext=new Audio();
+  audioContext.onstatechange=()=>{
+   if(stream&&audioContext&&audioContext.state!=="running")get('voice-hear').hidden=false;
+  };
+ }
  if(audioContext&&audioContext.state!=="running")return audioContext.resume();
  return Promise.resolve();
 }
 function volume(peer){const value=peer.gain*Number(get("voice-volume").value);if(peer.gainNode)peer.gainNode.gain.value=value;else peer.audio.volume=value;}
 const panel=document.createElement('details');panel.id='voice-panel';panel.hidden=true;
-panel.innerHTML='<summary>Nearby voice <span id="voice-badge">Off</span></summary><div class="voice-controls"><p id="voice-status" role="status" aria-live="polite">Enable voice to talk with players within 25 metres.</p><button id="voice-enable" type="button">Enable voice</button><button id="voice-mute" type="button" hidden>Unmute mic</button><button id="voice-stop" type="button" hidden>Turn voice off</button><button id="voice-hear" type="button" hidden>Play incoming audio</button><label>Listening volume <input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><p class="voice-note">Nearby audio · use headphones. No audio is recorded by Mini UK. Direct calls share network addresses with nearby participants.</p></div>';
+panel.innerHTML='<summary>Nearby voice <span id="voice-badge">Off</span></summary><div class="voice-controls"><p id="voice-status" role="status" aria-live="polite">Enable voice to talk with players within 25 metres.</p><button id="voice-enable" type="button">Enable voice</button><button id="voice-mute" type="button" hidden>Unmute mic</button><button id="voice-stop" type="button" hidden>Turn voice off</button><button id="voice-hear" type="button" hidden>Play incoming audio</button><label>Listening volume <output id="voice-level">100%</output><input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><button id="voice-test" type="button">Test speaker</button><p id="voice-output-status" role="status"></p><p class="voice-note">Nearby audio · use headphones. No audio is recorded by Mini UK. Direct calls share network addresses with nearby participants.</p></div>';
 document.getElementById('stage').appendChild(panel);
+// Keep mobile gestures on the audio controls away from the game canvas.
+for(const event of ['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend','keydown','keyup'])
+ panel.addEventListener(event,e=>e.stopPropagation());
+const voiceStyle=document.createElement('style');
+voiceStyle.textContent='#voice-volume{min-height:44px;touch-action:pan-x}#voice-test{order:4}#voice-output-status{order:4;font-size:12px}#voice-level{float:right}';
+panel.appendChild(voiceStyle);
 const get=id=>document.getElementById(id), status=text=>get('voice-status').textContent=text;
 function controls(){get('voice-enable').hidden=!!stream;get('voice-enable').disabled=pending||!session;get('voice-mute').hidden=!stream;get('voice-stop').hidden=!stream&&!pending;get('voice-mute').textContent=muted?'Unmute mic':'Mute mic';get('voice-mute').setAttribute('aria-pressed',String(!muted));get('voice-badge').textContent=stream?(muted?'Muted':'Mic on'):'Off';}
 async function request(path,data={},s=session){
@@ -26,7 +38,8 @@ function stop(message='Voice is off. Your microphone has been released.'){
  const old=session, oldEpoch=epoch;generation++;pending=false;clearTimeout(timer);timer=null;
  if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;
  for(const id of [...peers.keys()])drop(id);
- if(audioContext){audioContext.close().catch(()=>{});audioContext=null;}
+ if(testTone){testTone.stop();testTone=null;}
+ if(audioContext){audioContext.onstatechange=null;audioContext.close().catch(()=>{});audioContext=null;}
  epoch='';ack=0;config=null;muted=true;errors=0;get('voice-hear').hidden=true;
  if(old&&oldEpoch)request('/voice/leave',{epoch:oldEpoch},old).catch(()=>{});
  controls();status(message);
@@ -37,16 +50,36 @@ function report(){
  const failed=[...peers.values()].some(p=>p.pc.connectionState==='failed'||p.pc.connectionState==='disconnected');
  status(failed?(config?.relayAvailable?'Voice connection failed. Turn voice off and on to retry.':'This network may need a voice relay. The game owner must configure TURN; changing microphone permission will not fix that.'):`${connected} nearby voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
 }
+function playIncoming(peer,g){
+ peer.audio.play().then(()=>{peer.blocked=false;}).catch(()=>{
+  if(alive(g)){peer.blocked=true;get('voice-hear').hidden=false;}
+ });
+}
+function attachIncoming(peer,incoming,g){
+ peer.source?.disconnect();peer.gainNode?.disconnect();peer.source=null;peer.gainNode=null;
+ peer.audio.srcObject=incoming;
+ try{
+  if(audioContext){
+   peer.source=audioContext.createMediaStreamSource(incoming);
+   peer.gainNode=audioContext.createGain();
+   peer.source.connect(peer.gainNode).connect(audioContext.destination);
+  }
+ }catch{
+  peer.source?.disconnect();peer.gainNode?.disconnect();peer.source=null;peer.gainNode=null;
+ }
+ // Keep the remote media element playing for mobile WebRTC, but mute its
+ // output when Web Audio provides the audible path (avoids doubled sound).
+ peer.audio.muted=!!peer.gainNode;
+ volume(peer);playIncoming(peer,g);
+ if(peer.gainNode&&audioContext.state!=='running')get('voice-hear').hidden=false;
+}
 function makePeer(person,g){
  drop(person.id);
  const pc=new RTCPeerConnection({iceServers:config.iceServers});
  const audio=document.createElement('audio');audio.autoplay=true;audio.setAttribute('playsinline','');audio.volume=0;panel.appendChild(audio);
  const peer={pc,audio,epoch:person.epoch,gain:Math.max(0,Math.min(1,(25-person.distance)/20))};volume(peer);peers.set(person.id,peer);
  stream.getTracks().forEach(track=>pc.addTrack(track,stream));
- pc.ontrack=event=>{if(!alive(g))return;const incoming=event.streams[0]||new MediaStream([event.track]);
-  if(audioContext){peer.source?.disconnect();peer.gainNode?.disconnect();peer.source=audioContext.createMediaStreamSource(incoming);peer.gainNode=audioContext.createGain();volume(peer);peer.source.connect(peer.gainNode).connect(audioContext.destination);if(audioContext.state!=='running')get('voice-hear').hidden=false;}
-  else{audio.srcObject=incoming;audio.play().catch(()=>{if(alive(g))get('voice-hear').hidden=false;});}
- };
+ pc.ontrack=event=>{if(!alive(g)||peers.get(person.id)!==peer)return;attachIncoming(peer,event.streams[0]||new MediaStream([event.track]),g);};
  pc.onconnectionstatechange=()=>{if(alive(g))report();};return peer;
 }
 async function description(peer,kind,g){
@@ -114,8 +147,41 @@ async function enable(){
 get('voice-enable').onclick=enable;
 get('voice-stop').onclick=()=>stop();
 get('voice-mute').onclick=()=>{void unlockAudio().catch(()=>{get('voice-hear').hidden=false;});muted=!muted;stream?.getAudioTracks().forEach(track=>track.enabled=!muted);controls();report();};
-get('voice-volume').oninput=()=>peers.forEach(volume);
-get('voice-hear').onclick=async()=>{try{await unlockAudio();await Promise.all([...peers.values()].filter(peer=>!peer.gainNode&&peer.audio.srcObject).map(peer=>peer.audio.play()));get('voice-hear').hidden=false;if(!audioContext||audioContext.state==='running')get('voice-hear').hidden=true;}catch{status('Incoming audio is blocked by the browser. Tap Play incoming audio again.');}};
+function updateVolume(){
+ get('voice-level').textContent=Math.round(Number(get('voice-volume').value)*100)+'%';
+ peers.forEach(volume);
+ void unlockAudio().catch(()=>{get('voice-hear').hidden=false;});
+}
+get('voice-volume').oninput=updateVolume;
+get('voice-volume').onchange=updateVolume;
+get('voice-hear').onclick=async()=>{
+ const g=generation;
+ try{
+  // Both calls begin in the user gesture, before the first await.
+  const resumed=unlockAudio();
+  const played=[...peers.values()].filter(p=>p.audio.srcObject).map(p=>p.audio.play().then(()=>{p.blocked=false;}));
+  await Promise.all([resumed,...played]);
+  if(g!==generation)return;
+  const blocked=audioContext&&audioContext.state!=='running';
+  get('voice-hear').hidden= !blocked;
+  get('voice-output-status').textContent=blocked?'Audio is paused. Tap Play incoming audio again.':'Speaker playback enabled. Ask a nearby player to speak.';
+ }catch{get('voice-hear').hidden=false;get('voice-output-status').textContent='Playback is blocked. Tap Play incoming audio again.';}
+};
+get('voice-test').onclick=async()=>{
+ const g=generation;
+ try{
+  await unlockAudio();
+  if(g!==generation)return;
+  if(!audioContext||audioContext.state!=='running')throw Error('Audio is paused. Tap Test speaker again.');
+  if(testTone)testTone.stop();
+  const tone=audioContext.createOscillator(),level=audioContext.createGain();
+  const now=audioContext.currentTime;
+  level.gain.setValueAtTime(0,now);level.gain.linearRampToValueAtTime(0.12*Number(get('voice-volume').value),now+0.03);level.gain.linearRampToValueAtTime(0,now+0.6);
+  tone.frequency.value=440;tone.connect(level).connect(audioContext.destination);
+  testTone=tone;tone.onended=()=>{tone.disconnect();level.disconnect();if(testTone===tone)testTone=null;};tone.start();tone.stop(now+0.65);
+  get('voice-output-status').textContent='Test tone played. If silent, check the phone’s volume and Bluetooth output. This does not test the voice connection.';
+ }catch(error){get('voice-output-status').textContent=error.message;}
+};
 // A permission dialog may temporarily hide the page on Android. Do not cancel that request.
 // Once voice is active, leaving the tab stops capture; returning requires another tap.
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&stream&&!pending)stop('Voice paused while away. Enable voice when you return.');});
