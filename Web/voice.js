@@ -3,7 +3,8 @@
 'use strict';
 let session=null, generation=0, stream=null, timer=null, epoch='', ack=0, muted=true, pending=false;
 let config=null, peers=new Map(), errors=0, audioContext=null;
-let previousAudioSession=null;
+let previousAudioSession=null,privateCall='';
+function gain(person){return person.private?1:Math.max(0,Math.min(1,(3-person.distance)/2));}
 let testTone=null, micSource=null, micAnalyser=null, micSink=null, micTimer=null;
 function unlockAudio(){
  const Audio=window.AudioContext||window.webkitAudioContext;
@@ -18,7 +19,7 @@ function unlockAudio(){
 }
 function volume(peer){const value=peer.gain*Number(get("voice-volume").value);if(peer.gainNode)peer.gainNode.gain.value=value;else peer.audio.volume=value;}
 const panel=document.createElement('details');panel.id='voice-panel';panel.hidden=true;
-panel.innerHTML=`<summary aria-label="Nearby voice controls"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="16" rx="4"/><path d="M8 14v2a8 8 0 0 0 16 0v-2M16 24v5M11 29h10"/></svg><span id="voice-badge">Off</span></summary><div class="voice-controls"><strong>Nearby voice</strong><p id="voice-status" role="status" aria-live="polite">Turn on your mic to speak to nearby players.</p><button id="voice-enable" type="button">Turn on mic</button><button id="voice-mute" type="button" hidden>Mute mic</button><div id="voice-mic-check" hidden><label for="voice-mic-level">Your microphone</label><meter id="voice-mic-level" min="0" max="1" value="0"></meter><small id="voice-mic-status" role="status">Speak to check your mic.</small></div><button id="voice-hear" type="button" hidden>Resume sound</button><details class="voice-settings"><summary>Sound settings</summary><label>Listening volume <output id="voice-level">100%</output><input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><button id="voice-restart" type="button" hidden>Reconnect microphone</button><button id="voice-test" type="button">Test speaker</button><p id="voice-output-status" role="status"></p><button id="voice-stop" type="button" hidden>Disconnect voice</button><p class="voice-note">Turning on your mic shares your voice with players within 25 metres. No recording by Mini UK. Direct connections share network addresses. Use headphones.</p></details></div>`;
+panel.innerHTML=`<summary aria-label="Nearby voice controls"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="16" rx="4"/><path d="M8 14v2a8 8 0 0 0 16 0v-2M16 24v5M11 29h10"/></svg><span id="voice-badge">Off</span></summary><div class="voice-controls"><strong>Nearby voice</strong><p id="voice-status" role="status" aria-live="polite">Turn on your mic to speak to nearby players.</p><button id="voice-enable" type="button">Turn on mic</button><button id="voice-mute" type="button" hidden>Mute mic</button><div id="voice-mic-check" hidden><label for="voice-mic-level">Your microphone</label><meter id="voice-mic-level" min="0" max="1" value="0"></meter><small id="voice-mic-status" role="status">Speak to check your mic.</small></div><button id="voice-hear" type="button" hidden>Resume sound</button><details class="voice-settings"><summary>Sound settings</summary><label>Listening volume <output id="voice-level">100%</output><input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><button id="voice-restart" type="button" hidden>Reconnect microphone</button><button id="voice-test" type="button">Test speaker</button><p id="voice-output-status" role="status"></p><button id="voice-stop" type="button" hidden>Disconnect voice</button><p class="voice-note">Turning on your mic shares your voice with players within 3 metres. No recording by Mini UK. Direct connections share network addresses. Use headphones.</p></details></div>`;
 document.getElementById('stage').appendChild(panel);
 // Keep mobile gestures on the audio controls away from the game canvas.
 for(const event of ['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend','keydown','keyup'])
@@ -101,7 +102,7 @@ function report(){
  if(micUnavailable()){status('Your microphone is paused by the device. Open Sound settings → Reconnect microphone.');return;}
  const connected=[...peers.values()].filter(p=>p.pc.connectionState==='connected').length;
  const failed=[...peers.values()].some(p=>p.pc.connectionState==='failed'||p.pc.connectionState==='disconnected');
- status(failed?(config?.relayAvailable?'Voice connection failed. Turn voice off and on to retry.':'This network may need a voice relay. The game owner must configure TURN; changing microphone permission will not fix that.'):`${connected} nearby voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
+ status(failed?(config?.relayAvailable?'Voice connection failed. Turn voice off and on to retry.':'This network may need a voice relay. The game owner must configure TURN; changing microphone permission will not fix that.'):`${connected} ${privateCall?'private':'public nearby'} voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
 }
 function playIncoming(peer,g){
  peer.audio.play().then(()=>{peer.blocked=false;}).catch(()=>{
@@ -130,7 +131,7 @@ function makePeer(person,g){
  drop(person.id);
  const pc=new RTCPeerConnection({iceServers:config.iceServers});
  const audio=document.createElement('audio');audio.autoplay=true;audio.setAttribute('playsinline','');audio.volume=0;panel.appendChild(audio);
- const peer={pc,audio,epoch:person.epoch,gain:Math.max(0,Math.min(1,(25-person.distance)/20))};volume(peer);peers.set(person.id,peer);
+ const peer={pc,audio,epoch:person.epoch,gain:gain(person)};volume(peer);peers.set(person.id,peer);
  stream.getTracks().forEach(track=>pc.addTrack(track,stream));
  pc.ontrack=event=>{if(!alive(g)||peers.get(person.id)!==peer)return;attachIncoming(peer,event.streams[0]||new MediaStream([event.track]),g);};
  pc.onconnectionstatechange=()=>{if(alive(g))report();};return peer;
@@ -155,7 +156,7 @@ async function poll(g){
  try{
   const data=await request('/voice/poll',{ack});if(!alive(g))return;errors=0;
   const present=new Map(data.peers.map(p=>[p.id,p]));
-  for(const [id,peer] of peers){if(!present.has(id)||present.get(id).epoch!==peer.epoch){drop(id);continue;}peer.gain=Math.max(0,Math.min(1,(25-present.get(id).distance)/20));volume(peer);}
+  for(const [id,peer] of peers){if(!present.has(id)||present.get(id).epoch!==peer.epoch){drop(id);continue;}peer.gain=gain(present.get(id));volume(peer);}
   for(const message of data.messages){
    if(!alive(g))return;
    const person=present.get(message.sender);
@@ -193,7 +194,7 @@ async function enable(){
   if(!captured.getAudioTracks().length)throw Error('No microphone found. Check the browser microphone permission.');
   if(document.hidden)throw Error('Return to the game and tap Enable voice again.');
   if(g!==generation){captured.getTracks().forEach(track=>track.stop());return;}
-  stream=captured;const joined=await request('/voice/join',{},joining);
+  stream=captured;const joined=await request('/voice/join',{call:privateCall},joining);
   if(!alive(g)){request('/voice/leave',{epoch:joined.epoch},joining).catch(()=>{});return;}config=joined;epoch=config.epoch;muted=false;pending=false;
   stream.getAudioTracks().forEach(track=>{
    track.onended=()=>{if(alive(g))stop('Microphone disconnected. Tap Turn on mic to retry.');};
@@ -246,5 +247,5 @@ get('voice-test').onclick=async()=>{
 // Once voice is active, leaving the tab stops capture; returning requires another tap.
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&stream&&!pending)stop('Voice paused while away. Enable voice when you return.');});
 window.addEventListener('pagehide',()=>{stop();session=null;});
-window.MiniUKVoice={ready(){panel.hidden=false;controls();status('Enter London to connect automatically. Voice becomes available after connection.');},session(endpoint,token,id){stop();session={endpoint:endpoint.replace(/\/$/,''),token,id};panel.hidden=false;controls();status('Tap Turn on mic to speak with nearby players.');},leave(){stop();session=null;controls();status('Voice is available in public London. Waiting for a connection…');}};
+window.MiniUKVoice={setPrivate(id){stop('Private call selected. Tap Turn on mic to join.');privateCall=id||'';panel.open=true;panel.querySelector('strong').textContent=privateCall?'Private voice':'Public nearby voice';status(privateCall?'Private call accepted. Tap Turn on mic when ready.':'Public voice selected. Tap Turn on mic to speak within 3 metres.');},endPrivate(){if(privateCall){stop('Private call ended. Microphone released.');privateCall='';panel.querySelector('strong').textContent='Public nearby voice';}},ready(){panel.hidden=false;controls();status('Enter London to connect automatically. Voice becomes available after connection.');},session(endpoint,token,id){stop();privateCall='';session={endpoint:endpoint.replace(/\/$/,''),token,id};panel.hidden=false;controls();status('Tap Turn on mic to speak with nearby players.');},leave(){stop();session=null;controls();status('Voice is available in public London. Waiting for a connection…');}};
 })();

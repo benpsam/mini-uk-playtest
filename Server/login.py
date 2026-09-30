@@ -15,6 +15,11 @@ class Login:
         with self.lock:
             grant=self.grants.get(ticket)
             return bool(grant and grant['expires']>time.time())
+    def identity(self, ticket):
+        if not isinstance(ticket,str):return None
+        with self.lock:
+            grant=self.grants.get(ticket)
+            return grant.get('sub') if grant and grant['expires']>time.time() else None
     def cookie(self, handler, name):
         try:
             cookies = SimpleCookie(); cookies.load(handler.headers.get('Cookie', ''))
@@ -73,7 +78,7 @@ class Login:
                 if len(self.sessions)>=2048: return self.reply(h,429,{'error':'Please try again shortly.'})
                 ticket=secrets.token_urlsafe(32);expires=time.time()+3600
                 self.sessions[session]={'sub':claims['sub'],'expires':expires,'ticket':ticket}
-                self.grants[ticket]={'expires':expires}
+                self.grants[ticket]={'expires':expires,'sub':claims['sub']}
             return self.reply(h,200,{'signedIn':True,'wardrobeTicket':ticket,'expires':expires},self.header('miniuk_login',session,3600))
         except (ValueError,TypeError,AttributeError):
             return self.reply(h,401,{'error':'Sign-in could not be verified. Refresh and try again, or continue as guest.'})

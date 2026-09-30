@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-RUN pip install --no-cache-dir "google-auth[requests]>=2.40,<3"
+RUN pip install --no-cache-dir "google-auth[requests]>=2.40,<3" "psycopg[binary]>=3.2,<4" "Pillow>=11,<13"
 COPY Server/ ./Server/
 COPY Web/ ./Web/
 RUN useradd --uid 10001 --create-home miniuk

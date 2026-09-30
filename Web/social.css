@@ -1,0 +1,14 @@
+#social-launch{position:fixed;top:80px;left:16px;z-index:25;display:flex;gap:8px;align-items:center;background:#24282ddd;color:#fff;border:1px solid #66717c;border-radius:12px;padding:8px 12px;min-height:44px;font-size:14px}
+#social-panel{position:fixed;z-index:80;top:12px;right:12px;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;padding:18px;border-radius:16px;background:#20252bf5;color:#f3f5f8;border:1px solid #647383;box-shadow:0 12px 45px #0008;font:15px/1.45 system-ui}
+#social-panel[hidden],#social-launch[hidden]{display:none}
+#social-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#social-panel strong{font-size:20px}#social-panel button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 12px;background:#383e46;color:white;border:1px solid #647383;border-radius:9px;font:inherit;margin:4px 4px 4px 0;cursor:pointer}
+#social-panel button:hover,#social-panel button:focus-visible,#social-launch:focus-visible{outline:2px solid #a7e9d8;background:#46525d}
+#social-panel button:disabled{opacity:.45;cursor:not-allowed}#social-panel button[aria-pressed=true]{background:#266c60}
+#social-panel svg,#social-launch svg{width:23px;height:23px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.social-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.social-grid button{margin:0!important;justify-content:flex-start!important}
+#social-panel textarea,#social-panel select{box-sizing:border-box;width:100%;min-height:44px;background:#13191f;color:white;border:1px solid #748798;border-radius:8px;padding:10px;font:inherit}
+#social-panel label{display:block;margin:10px 0}.social-messages{max-height:35dvh;overflow:auto;overflow-wrap:anywhere}.social-messages p,.social-card{padding:10px;background:#303841;border-radius:8px}.social-image{max-width:100%;max-height:65dvh;object-fit:contain}
+.social-board{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.social-board button{min-height:74px!important;font-size:25px!important;margin:0!important}
+
+.social-score{display:flex;gap:10px;align-items:center}.social-score canvas{flex:none}

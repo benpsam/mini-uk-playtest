@@ -2,12 +2,16 @@
 import mimetypes
 import os
 import shutil
+import threading
+import time
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from http.server import ThreadingHTTPServer
 from server import Handler, Rooms
 from feedback import Feedback
 from login import Login
+from social_service import Social
+from social_store import Store
 WEB_ROOT = Path(__file__).resolve().parent.parent / "Web"
 API_PATHS = {"/health", "/presence", "/leaderboard"}
 ALLOWED = {".html", ".js", ".css", ".wasm", ".data", ".unityweb", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg", ".woff", ".woff2", ".ttf"}
@@ -50,8 +54,16 @@ def main():
     storage.mkdir(parents=True, exist_ok=True)
     with ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "10000"))), HostedHandler) as server:
         server.daemon_threads = True
-        server.rooms = Rooms()
+        server.rooms = Rooms(social=Social(Store(storage/'social.sqlite3',os.environ.get('DATABASE_URL'))))
         server.feedback = Feedback(storage/"feedback.sqlite3")
+        def expire_private_data():
+            while True:
+                time.sleep(60)
+                try:
+                    with server.rooms.social.db.transaction():server.rooms.social.cleanup()
+                except Exception:
+                    print("Social retention cleanup failed; check database availability.",flush=True)
+        threading.Thread(target=expire_private_data,daemon=True).start()
         server.origin = os.environ.get("GAME_ORIGIN", "")
         print("Mini UK playtest ready", flush=True)
         server.serve_forever()

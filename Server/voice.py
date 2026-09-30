@@ -35,6 +35,14 @@ class Voice:
         self.members = {}
         self.sequence = 0
 
+    def allowed(self,rooms,token,target):
+        a,b=rooms.sessions[token],rooms.sessions[target]
+        if hasattr(rooms,'social'):
+            with rooms.social.db.lock:
+                if rooms.social.blocked(a['profile'],b['profile']) or rooms.social.muted(a['profile'],b['profile']) or rooms.social.muted(b['profile'],a['profile']):return False
+                ca,cb=self.members[token].get('call',''),self.members[target].get('call','')
+                if ca or cb:return bool(ca and ca==cb and rooms.social.active_call(ca,a['profile'],b['profile']))
+        return distance(a,b)<3
     def handle(self, rooms, path, data, token):
         # Called while the parent room lock is held. Voice cannot extend a game session.
         now = rooms.clock()
@@ -45,7 +53,11 @@ class Voice:
                 self.members.pop(token, None)
             return {'ok': True}
         if path == '/voice/join':
-            self.members[token] = dict(epoch=secrets.token_hex(8), seen=now, queue=[], hits=[])
+            call=data.get('call','')
+            if call:
+                with rooms.social.db.lock:
+                    if not rooms.social.active_call(call,player['profile']):raise VoiceError(403,'Private call was not accepted or has ended.')
+            self.members[token] = dict(epoch=secrets.token_hex(8), seen=now, queue=[], hits=[],call=call)
             return dict(epoch=self.members[token]['epoch'], **ice_config(player['id']))
         member = self.members.get(token)
         if member is None or data.get('epoch') != member['epoch']:
@@ -56,8 +68,8 @@ class Voice:
             if type(ack) is not int or ack < 0:
                 raise VoiceError(400, 'Invalid voice acknowledgement.')
             member['queue'] = [m for m in member['queue'] if m['seq'] > ack and now-m['time'] < 30]
-            peers = [dict(id=p['id'], name=p['name'], epoch=self.members[t]['epoch'], distance=distance(player,p))
-                     for t,p in rooms.rooms[player['room']].items() if t != token and t in self.members and distance(player,p) < 25]
+            peers = [dict(id=p['id'], name=p['name'], epoch=self.members[t]['epoch'], distance=distance(player,p),private=bool(member.get('call')))
+                     for t,p in rooms.rooms[player['room']].items() if t != token and t in self.members and self.allowed(rooms,token,t)]
             nearby = {p['id'] for p in peers}
             return dict(peers=peers, messages=[{k:v for k,v in m.items() if k != 'time'} for m in member['queue'] if m['sender'] in nearby])
         if path != '/voice/signal':
@@ -71,7 +83,7 @@ class Voice:
             raise VoiceError(400, 'Invalid voice signal.')
         target = next((t for t,p in rooms.rooms[player['room']].items() if p['id'] == data.get('to') and t != token), None)
         dest = self.members.get(target)
-        if dest is None or data.get('toEpoch') != dest['epoch'] or distance(player,rooms.sessions[target]) >= 25:
+        if dest is None or data.get('toEpoch') != dest['epoch'] or not self.allowed(rooms,token,target):
             raise VoiceError(404, 'Player is no longer in this voice room.')
         dest['queue'] = [m for m in dest['queue'] if now-m['time'] < 30]
         if len(dest['queue']) >= 48:
