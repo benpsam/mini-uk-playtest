@@ -7,6 +7,7 @@ from urllib.parse import unquote, urlsplit
 from http.server import ThreadingHTTPServer
 from server import Handler, Rooms
 from feedback import Feedback
+from login import Login
 WEB_ROOT = Path(__file__).resolve().parent.parent / "Web"
 API_PATHS = {"/health", "/presence", "/leaderboard"}
 ALLOWED = {".html", ".js", ".css", ".wasm", ".data", ".unityweb", ".json", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg", ".woff", ".woff2", ".ttf"}
@@ -18,7 +19,13 @@ def asset_path(url, root=WEB_ROOT):
         return None
     return candidate
 class HostedHandler(Handler):
+    login = Login()
+    def do_POST(self):
+        path = urlsplit(self.path).path
+        if path.startswith("/auth/"): return self.login.handle(self, path)
+        return super().do_POST()
     def do_GET(self):
+        if urlsplit(self.path).path.startswith("/auth/"): return self.login.handle(self, urlsplit(self.path).path)
         if urlsplit(self.path).path in API_PATHS:
             self.path = urlsplit(self.path).path
             return super().do_GET()

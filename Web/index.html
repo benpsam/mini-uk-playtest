@@ -22,23 +22,21 @@
 /* Ordered right-side voice controls, below Fullscreen, with room for the game HUD. */
 #voice-panel{left:auto;right:max(12px,env(safe-area-inset-right));top:68px;max-height:calc(100dvh - 210px);overflow:auto;width:280px;max-width:calc(100vw - 24px)}.voice-controls{display:flex;flex-direction:column;gap:8px}.voice-controls button{margin:0;min-height:44px;width:100%}#voice-mute{order:2}#voice-volume{min-height:32px}.voice-controls label{order:3}#voice-hear{order:4}#voice-stop{order:5;background:#30394c;color:white}.voice-note{order:6}@media(pointer:coarse){#voice-panel{width:220px;max-height:calc(100dvh - 190px)}#voice-panel summary{font-size:14px;padding:10px 12px}.voice-controls{padding:0 12px 12px}}
 #full{top:auto;right:16px;bottom:16px;width:48px;height:48px;padding:11px;border:0;background:transparent;color:white;filter:drop-shadow(0 2px 2px #000b)}#full svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}#full:hover{outline:2px solid #fff8}
+.entry{min-height:100svh;display:grid;place-items:center;padding:24px;background:#101319}.entry-card{width:min(580px,100%);padding:32px;background:#19212b;border-radius:14px}.entry-card h1{font-size:clamp(28px,6vw,38px);margin:30px 0}.entry-card p{color:#acb8c7;font-size:16px}.entry-label{font-weight:700;font-size:12px!important;letter-spacing:1px}.age{display:flex;align-items:center;gap:12px;margin:24px 0 12px}.age input{width:22px;height:22px;accent-color:#a2e8d6}.entry-card .small{font-size:12px;color:#aab7c6}.entry-button{display:block;width:100%;min-height:48px;border:0;border-radius:8px;background:#a2e8d6;color:#102722;font-weight:700}.entry-button:disabled{opacity:.4}.entry-link{display:block;margin:14px auto;background:none;border:0;color:#bbc6d2;font-size:14px}#google-signin{margin:22px 0 10px;min-height:44px}#login-status{font-size:13px;min-height:20px}
 </style>
 </head>
 <body>
-<main class="welcome" id="welcome">
-<section class="hero" aria-label="Mini UK world map">
-<div class="sidebar"><div class="brand"><strong>MINI UK</strong><span>MEET · TALK · EXPLORE</span></div><div class="eyebrow">A little world to explore</div><h1>Your city.<br>Your kind of night.</h1><p>A riverside stroll, a café stop, or a landmark view. Choose where your evening begins.</p><button class="primary" id="play">Drop into London →</button><p class="meta">18+ · confirmation required at entry<br>Public London · optional nearby voice.</p><p class="mobile-hint">Phone controls: turn sideways for more space. Use the left pad to move, drag on the right to look, and tap Jump or Ride.</p></div>
-<div class="map" role="img" aria-label="Concept illustration of a miniature UK, with London, Manchester, Liverpool, Leeds, Scotland and Wales"><span class="badge">Six destinations. One growing world.</span></div>
-</section>
-<section class="destinations" aria-label="Choose a destination">
-<article class="card"><div class="card-art" style="--i:0"></div><header>London</header><button id="play-card">Drop into London →</button></article>
-<article class="card"><div class="card-art" style="--i:1"></div><header>Manchester</header><div class="soon">Travel via the in-game map</div></article>
-<article class="card"><div class="card-art" style="--i:2"></div><header>Liverpool</header><div class="soon">Travel via the in-game map</div></article>
-<article class="card"><div class="card-art" style="--i:3"></div><header>Leeds</header><div class="soon">Travel via the in-game map</div></article>
-<article class="card"><div class="card-art" style="--i:4"></div><header>Scotland</header><div class="soon">Travel via the in-game map</div></article>
-<article class="card"><div class="card-art" style="--i:5"></div><header>Wales</header><div class="soon">Travel via the in-game map</div></article>
-</section><p class="footnote">Concept artwork shown. All six destinations are early playable 3D prototypes. London connects players automatically. Nearby voice is an opt-in browser playtest; text chat is not available yet. <a href="audio-credits.html" style="color:inherit">Audio credits</a></p>
-</main>
+<main id="welcome" class="entry"><section class="entry-card" aria-labelledby="entry-title">
+<p class="entry-label">MINI UK / BEFORE YOU DROP IN</p><h1 id="entry-title">A space for adults.</h1>
+<p>Explore at your own pace. Confirm you're 18 or older to get started.</p>
+<label class="age"><input id="adult" type="checkbox"> I am 18 years old or older.</label>
+<p class="small">Self-declaration only. This does not verify your age.</p>
+<div id="google-signin" aria-label="Sign in with Google"></div><p id="login-status" role="status">Confirm your age to choose how to join.</p>
+<button id="guest" class="entry-button" disabled>Continue as guest</button>
+<button id="underage" class="entry-link">I'm under 18</button>
+<p class="small">Google sign-in is optional. Your email is not shown to other players. Progress is currently session-only.</p>
+<a class="small" href="audio-credits.html">Audio credits</a>
+</section></main>
 <div id="stage"><canvas id="game" tabindex="0" aria-label="Mini UK game. WASD to walk, Shift to run, drag or use arrow keys to rotate the camera, Escape for menu."></canvas></div>
 <div id="loading" role="status" aria-live="polite"><div class="load-card"><h2 id="status">Getting London ready…</h2><progress id="progress" max="1" value="0"></progress><p>The first visit takes longer while the world downloads.</p><p id="error"></p><button id="retry" hidden>Try again</button></div></div>
 <button id="full" type="button" aria-label="Fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
@@ -65,9 +63,9 @@ function start(){
   }).catch(fail);
  };document.body.appendChild(script);
 }
-document.getElementById('play').addEventListener('click',start);
-document.getElementById('play-card').addEventListener('click',start);
+
 document.getElementById('retry').addEventListener('click',()=>location.reload());
 document.getElementById('full').addEventListener('click',()=>{if(instance){const stage=document.getElementById('stage');if(stage.requestFullscreen)stage.requestFullscreen().catch(()=>{});else instance.SetFullscreen(1);}});
 </script>
+<script src="entry.js"></script>
 </body></html>
