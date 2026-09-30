@@ -21,6 +21,7 @@
 @media(pointer:coarse){#voice-panel{max-width:min(290px,calc(100vw - 24px));max-height:50dvh;overflow:auto}#voice-panel summary{min-height:44px}#full{min-height:44px;bottom:auto;top:12px;right:12px}#stage{height:100dvh}body{overscroll-behavior:none}.mobile-hint{grid-column:1/-1;display:block!important;font-size:13px;color:#ccf56b}} .mobile-hint{display:none}
 /* Ordered right-side voice controls, below Fullscreen, with room for the game HUD. */
 #voice-panel{left:auto;right:max(12px,env(safe-area-inset-right));top:68px;max-height:calc(100dvh - 210px);overflow:auto;width:280px;max-width:calc(100vw - 24px)}.voice-controls{display:flex;flex-direction:column;gap:8px}.voice-controls button{margin:0;min-height:44px;width:100%}#voice-mute{order:2}#voice-volume{min-height:32px}.voice-controls label{order:3}#voice-hear{order:4}#voice-stop{order:5;background:#30394c;color:white}.voice-note{order:6}@media(pointer:coarse){#voice-panel{width:220px;max-height:calc(100dvh - 190px)}#voice-panel summary{font-size:14px;padding:10px 12px}.voice-controls{padding:0 12px 12px}}
+#full{top:auto;right:16px;bottom:16px;width:48px;height:48px;padding:11px;border:0;background:transparent;color:white;filter:drop-shadow(0 2px 2px #000b)}#full svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}#full:hover{outline:2px solid #fff8}
 </style>
 </head>
 <body>
@@ -40,7 +41,7 @@
 </main>
 <div id="stage"><canvas id="game" tabindex="0" aria-label="Mini UK game. WASD to walk, Shift to run, drag or use arrow keys to rotate the camera, Escape for menu."></canvas></div>
 <div id="loading" role="status" aria-live="polite"><div class="load-card"><h2 id="status">Getting London ready…</h2><progress id="progress" max="1" value="0"></progress><p>The first visit takes longer while the world downloads.</p><p id="error"></p><button id="retry" hidden>Try again</button></div></div>
-<button id="full" type="button">Fullscreen</button>
+<button id="full" type="button" aria-label="Fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
 <script src="voice.js"></script>
 <script>
 let started=false, instance;
@@ -51,12 +52,12 @@ function start(){
  started=true; loading.style.display='grid';
  if(location.protocol==='file:'){fail('Open this game from its website link, not by double-clicking index.html.');return;}
  if(!document.createElement('canvas').getContext('webgl2')){fail('This browser needs WebGL 2 graphics support. Try an up-to-date Safari, Chrome, Edge or Firefox.');return;}
- const script=document.createElement('script'); script.src='Build/{{{ LOADER_FILENAME }}}';
+ const script=document.createElement('script'); script.src='Build/Web.loader.js';
  script.onerror=()=>fail('The game files could not download. Check your connection and try again.');
  script.onload=()=>{
   document.getElementById('stage').classList.add('active');
   createUnityInstance(canvas,{
-   dataUrl:'Build/{{{ DATA_FILENAME }}}',frameworkUrl:'Build/{{{ FRAMEWORK_FILENAME }}}',codeUrl:'Build/{{{ CODE_FILENAME }}}',
+   dataUrl:'Build/Web.data.unityweb',frameworkUrl:'Build/Web.framework.js.unityweb',codeUrl:'Build/Web.wasm.unityweb',
    streamingAssetsUrl:'StreamingAssets',companyName:'MiniUK',productName:'Mini UK',productVersion:'0.1',showBanner:(message,type)=>{if(type==='error')fail(message);},devicePixelRatio:matchMedia('(pointer:coarse)').matches?1:Math.min(window.devicePixelRatio||1,1.5)
   },progress=>{document.getElementById('progress').value=progress;}).then(game=>{
    instance=game;window.MiniUKVoice?.ready();loading.style.display='none';document.getElementById('welcome').hidden=true;
