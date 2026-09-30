@@ -2,6 +2,9 @@
 'use strict';
 const adult=document.getElementById('adult'),guest=document.getElementById('guest'),status=document.getElementById('login-status'),googleBox=document.getElementById('google-signin');
 let config=null,initializing=false,submitting=false;
+window.MiniUKWardrobe=null;
+function wardrobe(value){window.MiniUKWardrobe=value.signedIn&&value.wardrobeTicket?{ticket:value.wardrobeTicket,expires:value.expires*1000}:null;}
+setInterval(async()=>{if(!window.MiniUKWardrobe)return;try{wardrobe(await json('/auth/session'));}catch(e){window.MiniUKWardrobe=null;}},30000);
 async function json(url,options={}){
  const response=await fetch(url,{credentials:'same-origin',signal:AbortSignal.timeout(15000),...options});
  const value=await response.json();if(!response.ok)throw new Error(value.error||'Please try again.');return value;
@@ -18,7 +21,7 @@ async function setup(){
   script.onload=()=>{
    google.accounts.id.initialize({client_id:config.clientId,nonce:config.nonce,auto_select:false,callback:async result=>{
     if(!adult.checked||submitting||started)return;submitting=true;guest.disabled=true;status.textContent='Verifying your Google sign-in…';
-    try{await json('/auth/google',{method:'POST',headers:{'Content-Type':'application/json','X-MiniUK-Login':'1'},body:JSON.stringify({credential:result.credential})});status.textContent='Signed in. Opening Mini UK…';enter();}
+    try{const signed=await json('/auth/google',{method:'POST',headers:{'Content-Type':'application/json','X-MiniUK-Login':'1'},body:JSON.stringify({credential:result.credential})});wardrobe(signed);status.textContent='Signed in. Opening Mini UK…';enter();}
     catch(error){status.textContent=error.message;}
     finally{submitting=false;guest.disabled=!adult.checked;}
    }});
@@ -29,7 +32,7 @@ async function setup(){
  finally{initializing=false;}
 }
 adult.addEventListener('change',update);
-guest.addEventListener('click',()=>{if(adult.checked&&!submitting)enter();});
+guest.addEventListener('click',()=>{if(adult.checked&&!submitting){window.MiniUKWardrobe=null;enter();}});
 document.getElementById('underage').addEventListener('click',()=>{adult.checked=false;update();status.textContent='Mini UK is for players aged 18 or older.';});
 update();
 })();

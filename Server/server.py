@@ -1,4 +1,5 @@
 """Mini UK private London playtest. Python 3.10+, no third-party packages."""
+from pathlib import Path
 import argparse
 import json
 import math
@@ -11,7 +12,8 @@ from feedback import Feedback, FeedbackError
 from voice import Voice, VoiceError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-LIMITS = (2, 4, 6, 5, 6, 6, 6, 3, 4, 3, 3, 4, 2, 6)
+LIMITS = (4, 4, 10, 5, 6, 6, 6, 3, 4, 3, 3, 4, 2, 6, 6, 2, 6)
+PRESETS = json.loads(Path(__file__).with_name("avatar_presets.json").read_text())
 TTL = 20
 COINS = [(12, 0.2, -30-i*8) for i in range(24)]
 
@@ -51,12 +53,13 @@ class Rooms:
                 raise Rejected(400, 'Invalid player position.')
             result[key] = value
         look = data.get('look')
+        if isinstance(look,list) and len(look)==14: look=look+[0,0,0]
         if not isinstance(look, list) or len(look) != len(LIMITS) or any(type(v) is not int or not 0 <= v < cap for v, cap in zip(look, LIMITS)):
             raise Rejected(400, 'Invalid appearance.')
         result['look'] = look
         return result
 
-    def handle(self, path, data, ip):
+    def handle(self, path, data, ip, wardrobe=False):
         with self.lock:
             self.prune()
             now = self.clock()
@@ -78,6 +81,7 @@ class Rooms:
                     code = next((c for c,r in self.rooms.items() if len(r) < 12 and next(iter(r.values())).get('publicSession')), '')
                     create = not bool(code)
                 state = self.state(data)
+                if not wardrobe: state["look"]=PRESETS[state["look"][15]*6+state["look"][16]][:]
                 if create:
                     if len(self.rooms) >= 100:
                         raise Rejected(503, 'Server is full. Try again later.')
@@ -107,6 +111,7 @@ class Rooms:
             if now - player['last'] < .025:
                 raise Rejected(429, 'Updates are too frequent.')
             state = self.state(data)
+            if not wardrobe: state["look"]=PRESETS[state["look"][15]*6+state["look"][16]][:]
             coin = data.get('coin', -1)
             if type(coin) is not int or not -1 <= coin < len(COINS):
                 raise Rejected(400, 'Invalid coin.')
@@ -175,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path not in ('/join', '/sync', '/leave', '/voice/join', '/voice/poll', '/voice/signal', '/voice/leave'):
                 raise Rejected(404, 'Unknown request.')
-            self.reply(200, self.server.rooms.handle(self.path, data, self.client_address[0]))
+            self.reply(200, self.server.rooms.handle(self.path, data, self.client_address[0], wardrobe=hasattr(self,'login') and self.login.wardrobe_allowed(data.get('wardrobeTicket'))))
         except (Rejected, FeedbackError, VoiceError) as error:
             self.reply(error.status, {'error': error.message})
         except (ValueError, TypeError, UnicodeError):
