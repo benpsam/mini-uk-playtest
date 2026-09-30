@@ -1,10 +1,10 @@
 /* Private social panel. Credentials remain in memory; text is rendered with textContent. */
 (()=>{
 'use strict';
-let view='list';
+let view='list',quickKind='',quickRequest='';
 let session=null,selected=null,snapshot=null,activeCall='',matchId='',pollTimer,threadTimer,lastTyping=0,requestGeneration=0;
 const paths={
- chat:'M4 4h16v12H9l-5 4z',voice:'M9 4a3 3 0 0 1 6 0v8a3 3 0 0 1-6 0z M5 10v2a7 7 0 0 0 14 0v-2 M12 19v3 M8 22h8',
+ chat:'M6 3h12a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4h-5l-5 4v-4H6a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4 M7 11h.1 M12 11h.1 M17 11h.1',voice:'M9 4a3 3 0 0 1 6 0v8a3 3 0 0 1-6 0z M5 10v2a7 7 0 0 0 14 0v-2 M12 19v3 M8 22h8',
  status:'M2 12h5l3-8 4 16 3-8h5',picture:'M3 4h18v16H3z M3 16l6-6 5 5 3-3 4 4 M16 8h.1',
  once:'M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12 M12 9v6 M10 10l2-1',
  game:'M5 6h14l3 12-5-3H7l-5 3z M6 10h6 M9 7v6 M16 10h.1 M19 12h.1',
@@ -55,7 +55,7 @@ function renderRequests(){
  const requests=(snapshot?.invitations||[]).filter(i=>i.recipient===snapshot.me&&i.state==='pending');
  for(const i of requests){
   const card=node('div',undefined,body);card.className='social-card';node('p',name(i.sender)+' requests '+i.kind,card);
-  button(card,'Accept',i.kind==='voice'?'voice':i.kind==='game'?'game':'picture',async()=>{await api('respond',{id:i.id,accept:true});if(i.kind==='voice'){activeCall=i.id;window.MiniUKVoice.setPrivate(i.id);}if(i.kind==='game'){selected=i.sender;matchId=i.id;return game();}await refresh();list();});
+  button(card,'Accept',i.kind==='voice'?'voice':i.kind==='game'?'game':i.kind==='chat'?'chat':'picture',async()=>{await api('respond',{id:i.id,accept:true});if(i.kind==='voice'){activeCall=i.id;window.MiniUKVoice.setPrivate(i.id);}if(i.kind==='chat'){selected=i.sender;await refresh();return chat();}if(i.kind==='game'){selected=i.sender;matchId=i.id;return game();}await refresh();list();});
   button(card,'Decline','block',async()=>{await api('respond',{id:i.id,accept:false});await refresh();list();});
  }
  for(const s of snapshot?.statuses||[])node('p',name(s.sender)+': '+s.body+' · temporary status',body);
@@ -185,8 +185,55 @@ async function refresh(){
 }
 async function poll(){
  if(!session)return;
- try{await refresh();if(!panel.hidden&&view==='list')list();else if(!panel.hidden&&view==='actions'){const statusText=notice.textContent;actions();notice.textContent=statusText;}}catch(e){if(!panel.hidden)showError(e);}
+ try{await refresh();if(!panel.hidden&&view==='quick'){const ready=snapshot.invitations.find(i=>i.kind==='chat'&&i.state==='accepted'&&(i.sender===selected||i.recipient===selected));if(ready&&quickKind==='chat')await chat();else if(quickRequest){const request=snapshot.invitations.find(i=>i.id===quickRequest);if(!request)notice.textContent='Request expired. Close and try again.';else if(request.state==='declined')notice.textContent='Request declined.';else if(request.state==='accepted')notice.textContent='Voice request accepted. Turn on your mic using the voice controls.';}}if(!panel.hidden&&view==='list')list();else if(!panel.hidden&&view==='actions'){const statusText=notice.textContent;actions();notice.textContent=statusText;}}catch(e){if(!panel.hidden)showError(e);}
  if(session)pollTimer=setTimeout(poll,document.hidden?10000:3000);
 }
-window.MiniUKSocial={session(endpoint,token,id){requestGeneration++;clearTimeout(pollTimer);session={endpoint,token,id};launch.hidden=false;void poll();},leave(){requestGeneration++;clearTimeout(pollTimer);session=null;snapshot=null;selected=null;activeCall='';launch.hidden=true;close();},select(id){open(id).catch(showError);}};
+// Head controls follow Unity's projected avatar positions, never world coordinates from the network.
+const headLayer=node('div',undefined,document.getElementById('stage'));headLayer.id='social-heads';
+const headNodes=new Map();let headTime=0;
+for(const event of ['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend','keydown','keyup'])headLayer.addEventListener(event,e=>e.stopPropagation());
+function clearHeads(){headLayer.replaceChildren();headNodes.clear();}
+function heads(players){
+ headTime=performance.now();
+ const canvas=document.getElementById('game');if(!session||!canvas){clearHeads();return;}
+ const r=canvas.getBoundingClientRect(),keep=new Set();
+ for(const p of players){
+  if(!p.id||!Number.isFinite(p.x)||!Number.isFinite(p.y))continue;
+  keep.add(p.id);let entry=headNodes.get(p.id);
+  if(!entry){
+   const el=node('div',undefined,headLayer);el.className='social-head';
+   const bubble=node('div',undefined,el);bubble.className='head-bubble';
+   const chatButton=button(bubble,'Request chat','chat',()=>quick(p.id,'chat'));
+   const voiceButton=button(bubble,'Request voice call','voice',()=>quick(p.id,'voice'));
+   for(const [b,kind] of [[chatButton,'chat'],[voiceButton,'voice']]){b.lastChild.remove();b.className='head-'+kind;}
+   const label=node('span','',el);label.className='head-name';
+   entry={el,label,chatButton,voiceButton};headNodes.set(p.id,entry);
+  }
+  entry.label.textContent=p.name;
+  entry.el.style.left=(r.left+p.x*r.width)+'px';entry.el.style.top=(r.top+p.y*r.height)+'px';
+  const blocked=snapshot?.controls.some(c=>c.target===p.id&&c.kind==='block');
+  entry.chatButton.disabled=entry.voiceButton.disabled=!!blocked;
+  const pending=snapshot?.invitations.some(i=>i.sender===p.id&&i.recipient===snapshot.me&&i.state==='pending');
+  entry.el.classList.toggle('has-request',!!pending);
+  entry.el.hidden=!panel.hidden||document.hidden||p.y*r.height<90;
+ }
+ for(const [id,entry] of headNodes)if(!keep.has(id)){entry.el.remove();headNodes.delete(id);}
+}
+async function quick(id,kind){
+ panel.hidden=false;busyState();clear();view='quick';selected=id;quickKind=kind;quickRequest='';
+ try{
+  await refresh();title.textContent=name(id);
+  const incoming=snapshot.invitations.find(i=>i.sender===id&&i.recipient===snapshot.me&&i.kind===kind&&i.state==='pending');
+  if(incoming){renderRequests();return;}
+  const accepted=snapshot.invitations.find(i=>(i.sender===id||i.recipient===id)&&i.kind===kind&&i.state==='accepted');
+  if(accepted&&kind==='chat')return chat();
+  if(accepted){notice.textContent='Private call accepted. Enable your microphone using the voice button.';return;}
+  const outgoing=snapshot.invitations.find(i=>i.sender===snapshot.me&&i.recipient===id&&i.kind===kind&&i.state==='pending');
+  quickRequest=outgoing?outgoing.id:(await invite(kind)).id;
+  notice.textContent=(kind==='chat'?'Chat':'Voice')+' request sent. Waiting for '+name(id)+'.';
+  button(body,'More options','people',actions);
+ }catch(e){showError(e);}
+}
+setInterval(()=>{if(performance.now()-headTime>500)clearHeads();},500);
+window.MiniUKSocial={heads,session(endpoint,token,id){requestGeneration++;clearTimeout(pollTimer);session={endpoint,token,id};launch.hidden=false;void poll();},leave(){clearHeads();requestGeneration++;clearTimeout(pollTimer);session=null;snapshot=null;selected=null;activeCall='';launch.hidden=true;close();},select(id){open(id).catch(showError);}};
 })();

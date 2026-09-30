@@ -143,7 +143,7 @@ class Social:
     return dict(ok=True)
    if action=='invite':
     kind=data.get('kind')
-    if kind not in ('voice','picture','game'):raise SocialError(400,'Unknown invitation.')
+    if kind not in ('chat','voice','picture','game'):raise SocialError(400,'Unknown invitation.')
     if kind=='picture' and not (os.environ.get('MINIUK_IMAGES_ENABLED')=='1' and os.environ.get('OPENAI_API_KEY')):raise SocialError(503,'Picture sharing is not configured yet.')
     if not any(p['profile']==target for p in online):raise SocialError(409,'Player is offline or in another session.')
     old=self.db.one('SELECT state,created FROM invitations WHERE sender=? AND recipient=? AND kind=? ORDER BY created DESC LIMIT 1',(me,target,kind))
