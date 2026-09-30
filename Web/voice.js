@@ -32,8 +32,16 @@ voiceStyle.textContent=`
 #voice-panel>.voice-controls{box-sizing:border-box;position:absolute;right:0;bottom:76px;width:min(300px,calc(100vw - 32px));max-height:calc(100dvh - 230px);overflow-y:auto;padding:16px;background:#14202ef5;border:1px solid #62778c;border-radius:20px;box-shadow:0 8px 30px #0007;display:flex;gap:10px;flex-direction:column}
 #voice-panel:not([open])>.voice-controls{display:none}#voice-panel .voice-controls>*{order:initial}#voice-panel .voice-controls button{min-height:44px;margin:0;width:100%;touch-action:manipulation}#voice-panel .voice-settings>summary{padding:8px 0;min-height:0;cursor:pointer;font-size:13px}#voice-panel .voice-settings>*:not(summary){margin-top:10px}
 #voice-volume{min-height:44px;touch-action:pan-x}#voice-level{float:right}#voice-mic-level{display:block;width:100%;height:14px;accent-color:#70e0b1}#voice-mic-status{display:block;font-size:12px;color:#bed0df;margin-top:4px}#voice-output-status{font-size:12px}#voice-restart,#voice-test{background:#30475c;color:white}
-@media(pointer:coarse){#voice-panel{bottom:calc(252px + env(safe-area-inset-bottom))}#voice-panel>.voice-controls{max-height:calc(100dvh - 350px)}}
-@media(pointer:coarse) and (max-height:600px){#voice-panel{right:228px;bottom:16px}#voice-panel>.voice-controls{right:-212px;max-height:calc(100dvh - 110px)}}
+/* Transparent dock icons; Unity supplies the shared row coordinates. */
+#voice-panel{right:72px;bottom:16px;width:48px;height:48px}
+#voice-panel>summary{width:100%;height:100%;padding:10px;border:0;border-radius:10px;background:transparent!important;box-shadow:none;filter:drop-shadow(0 2px 2px #000b)}
+#voice-panel svg{width:26px;height:26px}
+#voice-badge{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+#voice-panel>summary:after{content:"";position:absolute;right:7px;bottom:7px;width:6px;height:6px;border-radius:50%;background:#8e9baa}
+#voice-panel[data-mic="on"]>summary:after{background:#89efbb}
+#voice-panel[data-mic="paused"]>summary:after{background:#ffb45e}
+#voice-panel>.voice-controls{bottom:60px;right:-56px;max-height:calc(100dvh - 100px)}
+#voice-panel>summary:hover,#voice-panel>summary:focus-visible{outline:2px solid #fff8}
 `;
 panel.appendChild(voiceStyle);
 const get=id=>document.getElementById(id), status=text=>get('voice-status').textContent=text;
