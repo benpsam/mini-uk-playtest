@@ -32,7 +32,14 @@ async function setup(){
  finally{initializing=false;}
 }
 adult.addEventListener('change',update);
-guest.addEventListener('click',()=>{if(adult.checked&&!submitting){window.MiniUKWardrobe=null;enter();}});
+const details=document.getElementById('guest-details');
+guest.addEventListener('click',()=>{if(adult.checked&&!submitting){details.hidden=false;guest.hidden=true;details.closest('.entry-card').classList.add('guest-mode');document.getElementById('guest-name').focus();}});
+document.getElementById('guest-back').addEventListener('click',()=>{details.hidden=true;guest.hidden=false;details.closest('.entry-card').classList.remove('guest-mode');guest.focus();});
+details.addEventListener('submit',event=>{event.preventDefault();if(!adult.checked||submitting||started)return;
+ const name=document.getElementById('guest-name').value.trim(),location=document.getElementById('guest-location').value.trim();
+ if(!/^[A-Za-z0-9 _-]{1,24}$/.test(name)||!location||location.length>60){document.getElementById('guest-error').textContent='Enter a name using 1–24 letters, numbers, spaces, hyphens or underscores, and a town or country.';return;}
+ window.MiniUKGuest={name,location};window.MiniUKWardrobe=null;enter();
+});
 document.getElementById('underage').addEventListener('click',()=>{adult.checked=false;update();status.textContent='Mini UK is for players aged 18 or older.';});
 update();
 })();
