@@ -25,7 +25,7 @@ for(const event of ['pointerdown','pointermove','pointerup','touchstart','touchm
 panel.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
 function showError(e){notice.textContent=e.message||String(e);}
 function busyState(){window.MiniUKSocialOpen=!panel.hidden;}
-function close(){panel.hidden=true;busyState();clearTimeout(threadTimer);}
+function close(){panel.hidden=true;busyState();clearTimeout(threadTimer);document.getElementById('game')?.focus();}
 function clear(){body.replaceChildren();notice.textContent='';clearTimeout(threadTimer);}
 async function api(action,data={}){
  if(!session)throw Error('Connect to the game first.');
@@ -84,14 +84,14 @@ function actions(){
  if(match)button(body,'Open noughts and crosses','game',()=>{matchId=match.id;game();});
 }
 async function invite(kind){const r=await api('invite',{target:selected,kind});notice.textContent='Request sent. Waiting for accept or decline.';await refresh();return r;}
-function input(parent,label,max=1000){node('label',label,parent);const el=node('textarea',undefined,parent);el.maxLength=max;el.setAttribute('aria-label',label);return el;}
+function input(parent,label,max=1000){node('label',label,parent);const el=node('textarea',undefined,parent);el.maxLength=max;el.style.fontSize='16px';el.setAttribute('autocapitalize','sentences');el.setAttribute('aria-label',label);return el;}
 async function chat(){
  view='chat';
  clear();title.textContent='Private · '+name(selected);button(body,'Back','people',actions);
  const log=node('div',undefined,body);log.className='social-messages';log.setAttribute('aria-live','polite');
  const presence=node('p','',body),draft=input(body,'Message (only you and this player)',1000);
  draft.oninput=()=>{if(Date.now()-lastTyping>3000){lastTyping=Date.now();api('typing',{target:selected}).catch(()=>{});}};
- button(body,'Send','chat',async()=>{if(!draft.value.trim())return;await api('send',{target:selected,body:draft.value,id:crypto.randomUUID()});draft.value='';notice.textContent='Message sent';await update();});
+ button(body,'Send','chat',async()=>{if(!draft.value.trim())return;await api('send',{target:selected,body:draft.value,id:(crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join(''))});draft.value='';notice.textContent='Message sent';await update();});
  const images=node('div',undefined,body);let target=selected;
  async function update(){
   if(panel.hidden||selected!==target||!log.isConnected)return;

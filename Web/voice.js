@@ -102,7 +102,8 @@ function report(){
  if(micUnavailable()){status('Your microphone is paused by the device. Open Sound settings → Reconnect microphone.');return;}
  const connected=[...peers.values()].filter(p=>p.pc.connectionState==='connected').length;
  const failed=[...peers.values()].some(p=>p.pc.connectionState==='failed'||p.pc.connectionState==='disconnected');
- status(failed?(config?.relayAvailable?'Voice connection failed. Turn voice off and on to retry.':'This network may need a voice relay. The game owner must configure TURN; changing microphone permission will not fix that.'):`${connected} ${privateCall?'private':'public nearby'} voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
+ if(!peers.size){status(privateCall?'Waiting for the other player to turn on their mic in this private call.':'No nearby microphones connected. Both players must tap Turn on mic and stay within 3 metres.'+(config&&!config.relayAvailable?' Voice relay is not configured on the server.':''));return;}
+ status(failed?(config?.relayAvailable?'Voice connection interrupted. Reconnecting automatically…':'This network may need a voice relay. The game owner must configure TURN; changing microphone permission will not fix that.'):`${connected} ${privateCall?'private':'public nearby'} voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
 }
 function playIncoming(peer,g){
  peer.audio.play().then(()=>{peer.blocked=false;}).catch(()=>{
@@ -131,10 +132,10 @@ function makePeer(person,g){
  drop(person.id);
  const pc=new RTCPeerConnection({iceServers:config.iceServers});
  const audio=document.createElement('audio');audio.autoplay=true;audio.setAttribute('playsinline','');audio.volume=0;panel.appendChild(audio);
- const peer={pc,audio,epoch:person.epoch,gain:gain(person)};volume(peer);peers.set(person.id,peer);
+ const peer={pc,audio,epoch:person.epoch,gain:gain(person),createdAt:Date.now(),failedAt:0};volume(peer);peers.set(person.id,peer);
  stream.getTracks().forEach(track=>pc.addTrack(track,stream));
  pc.ontrack=event=>{if(!alive(g)||peers.get(person.id)!==peer)return;attachIncoming(peer,event.streams[0]||new MediaStream([event.track]),g);};
- pc.onconnectionstatechange=()=>{if(alive(g))report();};return peer;
+ pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='disconnected'){if(!peer.failedAt)peer.failedAt=Date.now();}else peer.failedAt=0;if(alive(g))report();};return peer;
 }
 async function description(peer,kind,g){
  const pc=peer.pc;await pc.setLocalDescription(kind==='offer'?await pc.createOffer():await pc.createAnswer());
@@ -175,7 +176,11 @@ async function poll(g){
   }
   if(!alive(g))return;
   // Parallel ICE gathering avoids making larger rooms miss their heartbeat.
-  for(const person of data.peers)if(session.id<person.id&&!peers.has(person.id))void offer(person,g);
+  for(const person of data.peers){
+   const peer=peers.get(person.id),now=Date.now();
+   const retry=peer&&((peer.failedAt&&now-peer.failedAt>8000)||(peer.pc.connectionState!=='connected'&&now-peer.createdAt>25000));
+   if(session.id<person.id&&(!peer||retry))void offer(person,g);
+  }
   report();
  }catch(error){if(!alive(g))return;errors++;status(error.message);if(errors>=3){stop('Voice disconnected. Enable voice to reconnect.');return;}}
  if(alive(g))timer=setTimeout(()=>poll(g),1000);
