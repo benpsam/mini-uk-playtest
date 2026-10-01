@@ -26,3 +26,5 @@
 .head-bubble button:disabled{color:#9299a5;cursor:default;opacity:.5}
 .head-name{max-width:150px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;background:#242936ee;color:#fff;font:700 13px system-ui;border-radius:7px;padding:3px 10px}
 .has-request .head-bubble:before{content:'';position:absolute;right:-4px;top:-4px;width:11px;height:11px;border:2px solid white;border-radius:50%;background:#ee4d67;z-index:3}
+
+.social-head.is-self{transform:translate(-50%,calc(-100% - 64px))}

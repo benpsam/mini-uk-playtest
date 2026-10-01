@@ -176,7 +176,7 @@ async function leaderboard(offset){
 }
 async function refresh(){
  const generation=requestGeneration;const next=await api('poll');if(generation!==requestGeneration)return;
- snapshot=next;
+ snapshot=next;window.MiniUKHud?.social(next);
  const accepted=snapshot.invitations.find(i=>i.kind==='voice'&&i.state==='accepted');
  if(!activeCall&&accepted){activeCall=accepted.id;window.MiniUKVoice.setPrivate(accepted.id);}
  if(activeCall&&!snapshot.invitations.some(i=>i.id===activeCall&&i.state==='accepted')){window.MiniUKVoice.endPrivate();activeCall='';}
@@ -201,7 +201,7 @@ function heads(players){
   if(!p.id||!Number.isFinite(p.x)||!Number.isFinite(p.y))continue;
   keep.add(p.id);let entry=headNodes.get(p.id);
   if(!entry){
-   const el=node('div',undefined,headLayer);el.className='social-head';
+   const el=node('div',undefined,headLayer);el.className='social-head'+(p.id==='self'?' is-self':'');
    const bubble=node('div',undefined,el);bubble.className='head-bubble';
    const chatButton=button(bubble,'Request chat','chat',()=>quick(p.id,'chat'));
    const voiceButton=button(bubble,'Request voice call','voice',()=>quick(p.id,'voice'));
@@ -220,6 +220,7 @@ function heads(players){
  for(const [id,entry] of headNodes)if(!keep.has(id)){entry.el.remove();headNodes.delete(id);}
 }
 async function quick(id,kind){
+ if(id==='self'){if(kind==='voice'){const v=document.getElementById('voice-panel');v.open=true;return;}return choose('chat');}
  panel.hidden=false;busyState();clear();view='quick';selected=id;quickKind=kind;quickRequest='';
  try{
   await refresh();title.textContent=name(id);
@@ -235,5 +236,13 @@ async function quick(id,kind){
  }catch(e){showError(e);}
 }
 setInterval(()=>{if(performance.now()-headTime>500)clearHeads();},500);
-window.MiniUKSocial={heads,session(endpoint,token,id){requestGeneration++;clearTimeout(pollTimer);session={endpoint,token,id};launch.hidden=false;void poll();},leave(){clearHeads();requestGeneration++;clearTimeout(pollTimer);session=null;snapshot=null;selected=null;activeCall='';launch.hidden=true;close();},select(id){open(id).catch(showError);}};
+async function choose(kind='people'){
+ panel.hidden=false;busyState();clear();view='chooser';selected=null;
+ try{await refresh();title.textContent=kind==='game'?'Challenge a player':kind==='chat'?'Choose someone to chat with':'Players';
+ for(const p of snapshot.people)button(body,p.name,kind==='game'?'game':kind==='chat'?'chat':'people',()=>{selected=p.id;if(kind==='game'){actions();return invite('game');}if(kind==='chat')return quick(p.id,'chat');actions();});
+ if(!snapshot.people.length)node('p','No other players in this session yet. Invite a friend to the same city.',body);
+ button(body,'Contacts & requests','people',list);
+ }catch(e){showError(e);}
+}
+window.MiniUKSocial={choose,heads,session(endpoint,token,id){requestGeneration++;clearTimeout(pollTimer);session={endpoint,token,id};launch.hidden=false;void poll();},leave(){clearHeads();requestGeneration++;clearTimeout(pollTimer);session=null;snapshot=null;selected=null;activeCall='';launch.hidden=true;close();},select(id){open(id).catch(showError);}};
 })();
