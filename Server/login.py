@@ -1,10 +1,39 @@
 """Optional Google authentication; no email/profile data is stored or returned."""
-import json, os, secrets, threading, time
+import hashlib, json, os, secrets, threading, time
+from social_store import Store
 from http.cookies import SimpleCookie
 
 class Login:
-    def __init__(self):
+    def __init__(self, store=None):
+        self.db = store or Store()
         self.pending = {}; self.sessions = {}; self.grants = {}; self.lock = threading.Lock()
+    @staticmethod
+    def digest(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+    def create_session(self, subject):
+        token=secrets.token_urlsafe(32)
+        with self.db.transaction():
+            self.db.execute('DELETE FROM auth_sessions WHERE expires<=?',(time.time(),))
+            self.db.execute('INSERT INTO auth_sessions(digest,subject,expires) VALUES(?,?,?)',(self.digest(token),subject,time.time()+30*86400))
+        return token
+    def restore(self, token):
+        if not token or len(token)>128:return None
+        key=self.digest(token)
+        with self.db.transaction():
+            row=self.db.one('SELECT subject,expires FROM auth_sessions WHERE digest=?',(key,))
+        if not row or row['expires']<=time.time():return None
+        session=self.sessions.get(key)
+        if not session or session['expires']<=time.time():
+            ticket=secrets.token_urlsafe(32)
+            session={'sub':row['subject'],'expires':min(row['expires'],time.time()+3600),'ticket':ticket}
+            self.sessions[key]=session
+            self.grants[ticket]={'expires':session['expires'],'sub':row['subject']}
+        return session
+    def logout(self, token):
+        key=self.digest(token)
+        with self.db.transaction():self.db.execute('DELETE FROM auth_sessions WHERE digest=?',(key,))
+        previous=self.sessions.pop(key,None)
+        if previous:self.grants.pop(previous['ticket'],None)
     def prune(self):
         now = time.time()
         for store in (self.pending, self.sessions, self.grants):
@@ -45,7 +74,7 @@ class Login:
             return self.reply(h, 200, {'clientId':client, 'nonce':nonce}, self.header('miniuk_nonce',nonce,600))
         if h.command == 'GET' and path == '/auth/session':
             with self.lock:
-                self.prune(); session = self.sessions.get(self.cookie(h,'miniuk_login'))
+                self.prune(); session = self.restore(self.cookie(h,'miniuk_login'))
             return self.reply(h,200,{'signedIn':bool(session),'wardrobeTicket':session['ticket'] if session else '', 'expires':session['expires'] if session else 0})
         origins = {'https://www.miniukworld.com','https://miniukworld.com','https://mini-uk-playtest.onrender.com'}
         origins.update(x.strip() for x in os.environ.get('AUTH_ORIGINS','').split(',') if x.strip())
@@ -53,8 +82,7 @@ class Login:
             return self.reply(h,403,{'error':'Open sign-in from the Mini UK website.'})
         if path == '/auth/logout':
             with self.lock:
-                previous=self.sessions.pop(self.cookie(h,'miniuk_login'),None)
-                if previous:self.grants.pop(previous['ticket'],None)
+                self.logout(self.cookie(h,'miniuk_login'))
             return self.reply(h,200,{'signedIn':False},self.header('miniuk_login','',0))
         if path != '/auth/google': return self.reply(h,404,{'error':'Unknown login request.'})
         if not client: return self.reply(h,503,{'error':'Google sign-in is not configured yet. Continue as guest.'})
@@ -72,14 +100,11 @@ class Login:
             from google.auth.transport.requests import Request
             claims=id_token.verify_oauth2_token(credential,Request(),client)
             if not claims.get('sub') or not secrets.compare_digest(str(claims.get('nonce','')),nonce): raise ValueError()
-            session=secrets.token_urlsafe(32)
             with self.lock:
                 self.prune()
-                if len(self.sessions)>=2048: return self.reply(h,429,{'error':'Please try again shortly.'})
-                ticket=secrets.token_urlsafe(32);expires=time.time()+3600
-                self.sessions[session]={'sub':claims['sub'],'expires':expires,'ticket':ticket}
-                self.grants[ticket]={'expires':expires,'sub':claims['sub']}
-            return self.reply(h,200,{'signedIn':True,'wardrobeTicket':ticket,'expires':expires},self.header('miniuk_login',session,3600))
+                session=self.create_session(claims['sub'])
+                saved=self.restore(session)
+            return self.reply(h,200,{'signedIn':True,'wardrobeTicket':saved['ticket'],'expires':saved['expires']},self.header('miniuk_login',session,30*86400))
         except (ValueError,TypeError,AttributeError):
             return self.reply(h,401,{'error':'Sign-in could not be verified. Refresh and try again, or continue as guest.'})
         except Exception:

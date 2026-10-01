@@ -38,3 +38,9 @@
 .head-toggle:before{content:'';width:9px;height:9px;border-radius:50%;background:#a3edb5;box-shadow:0 0 4px #a3edb555}
 .head-toggle:focus-visible{outline:2px solid #a3edb5}.head-toggle[aria-expanded=true]:before{background:#69cd87}
 @media(pointer:coarse){.head-toggle{width:40px;height:40px}}
+
+/* Small glass nameplate; the dot retains a generous invisible touch target. */
+.head-name-row{gap:3px;padding:2px 6px 2px 8px;border:1px solid #e2f6ff55;border-radius:20px;background:linear-gradient(135deg,#bfdff52e,#16232a66);backdrop-filter:blur(12px) saturate(145%);-webkit-backdrop-filter:blur(12px) saturate(145%);box-shadow:0 2px 8px #0002,inset 0 1px #ffffff26}
+.head-name-row .head-name{font-size:10px;font-weight:600;line-height:16px;padding:0;max-width:180px;text-shadow:0 1px 3px #000a}
+.head-toggle{position:relative;width:20px;height:20px;flex:none}.head-toggle:before{width:7px;height:7px}.head-toggle:after{content:'';position:absolute;inset:-10px -8px}
+@media(pointer:coarse){.head-toggle{width:22px;height:22px}.head-name-row .head-name{max-width:160px}}

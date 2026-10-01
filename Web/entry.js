@@ -4,7 +4,7 @@ const adult=document.getElementById('adult'),guest=document.getElementById('gues
 let config=null,initializing=false,submitting=false;
 window.MiniUKWardrobe=null;
 function wardrobe(value){window.MiniUKWardrobe=value.signedIn&&value.wardrobeTicket?{ticket:value.wardrobeTicket,expires:value.expires*1000}:null;}
-setInterval(async()=>{if(!window.MiniUKWardrobe)return;try{wardrobe(await json('/auth/session'));}catch(e){window.MiniUKWardrobe=null;}},30000);
+setInterval(async()=>{if(!window.MiniUKWardrobe)return;try{wardrobe(await json('/auth/session'));}catch(e){/* Keep the current grant during a temporary network interruption. */}},30000);
 async function json(url,options={}){
  const response=await fetch(url,{credentials:'same-origin',signal:AbortSignal.timeout(15000),...options});
  const value=await response.json();if(!response.ok)throw new Error(value.error||'Please try again.');return value;
@@ -14,6 +14,15 @@ function update(){guest.disabled=!adult.checked||submitting;googleBox.hidden=!ad
 async function setup(){
  if(initializing||config)return;initializing=true;status.textContent='Checking sign-in options…';
  try{
+  const saved=await json('/auth/session');
+  if(saved.signedIn){
+   wardrobe(saved);googleBox.replaceChildren();
+   const resume=document.createElement('button');resume.className='entry-button';resume.textContent='Continue with saved Google account';
+   resume.onclick=()=>{if(adult.checked)enter();};
+   const logout=document.createElement('button');logout.className='entry-link';logout.textContent='Sign out / use another Google account';
+   logout.onclick=async()=>{try{await json('/auth/logout',{method:'POST',headers:{'X-MiniUK-Login':'1'}});window.MiniUKWardrobe=null;config=null;googleBox.replaceChildren();setup();}catch(e){status.textContent='Could not sign out. Please try again.';}};
+   googleBox.append(resume,logout);config={restored:true};status.textContent='Your Google account is saved on this browser.';return;
+  }
   config=await json('/auth/config');
   if(!config.clientId){status.textContent='Google sign-in is not available yet. You can continue as guest.';return;}
   const script=document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;

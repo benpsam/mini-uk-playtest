@@ -107,6 +107,12 @@ class Rooms:
                     raise Rejected(404, 'Room not found. Check the code and server address.')
                 if len(self.rooms.get(code, {})) >= 12:
                     raise Rejected(409, 'This room is full (12 players).')
+                if subject:
+                    with self.social.db.transaction():
+                        saved=self.social.db.one('SELECT name,avatar FROM profiles WHERE auth_id=?',('google:'+subject,))
+                    if saved:
+                        name=saved['name']
+                        state['look']=json.loads(saved['avatar'])
                 token = secrets.token_urlsafe(32)
                 player = dict(state, id=secrets.token_hex(8), name=name.strip(), place=place, room=code, seen=now, last=0, credits=0, coins=[], publicSession=public)
                 player['profile']=self.social.profile(name.strip(),state['look'],'google:'+subject if subject else 'guest:'+guest_key if guest_key else None)

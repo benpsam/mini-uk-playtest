@@ -55,6 +55,7 @@ def main():
     with ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "10000"))), HostedHandler) as server:
         server.daemon_threads = True
         server.rooms = Rooms(social=Social(Store(storage/'social.sqlite3',os.environ.get('DATABASE_URL'))))
+        HostedHandler.login = Login(server.rooms.social.db)
         server.feedback = Feedback(storage/"feedback.sqlite3")
         def expire_private_data():
             while True:
