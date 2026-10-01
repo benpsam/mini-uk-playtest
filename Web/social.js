@@ -185,7 +185,7 @@ async function refresh(){
 }
 async function poll(){
  if(!session)return;
- try{await refresh();if(!panel.hidden&&view==='quick'){const ready=snapshot.invitations.find(i=>i.kind==='chat'&&i.state==='accepted'&&(i.sender===selected||i.recipient===selected));if(ready&&quickKind==='chat')await chat();else if(quickRequest){const request=snapshot.invitations.find(i=>i.id===quickRequest);if(!request)notice.textContent='Request expired. Close and try again.';else if(request.state==='declined')notice.textContent='Request declined.';else if(request.state==='accepted')notice.textContent='Voice request accepted. Turn on your mic using the voice controls.';}}if(!panel.hidden&&view==='list')list();else if(!panel.hidden&&view==='actions'){const statusText=notice.textContent;actions();notice.textContent=statusText;}}catch(e){if(!panel.hidden)showError(e);}
+ try{await refresh();if(!panel.hidden&&view==='quick'){const ready=snapshot.invitations.find(i=>i.kind==='chat'&&i.state==='accepted'&&(i.sender===selected||i.recipient===selected));if(ready&&quickKind==='chat')await chat();else if(quickRequest){const request=snapshot.invitations.find(i=>i.id===quickRequest);if(!request)notice.textContent='Request expired. Close and try again.';else if(request.state==='timedout')notice.textContent='No answer. Request timed out.';else if(request.state==='failed')notice.textContent='Private voice could not connect. Please try again.';else if(request.state==='ended')notice.textContent='Call ended.';else if(request.state==='declined')notice.textContent='Request declined.';else if(request.state==='accepted')notice.textContent='Voice request accepted. Turn on your mic using the voice controls.';}}if(!panel.hidden&&view==='list')list();else if(!panel.hidden&&view==='actions'){const statusText=notice.textContent;actions();notice.textContent=statusText;}}catch(e){if(!panel.hidden)showError(e);}
  if(session)pollTimer=setTimeout(poll,document.hidden?10000:3000);
 }
 // Head controls follow Unity's projected avatar positions, never world coordinates from the network.
@@ -210,12 +210,19 @@ function heads(players){
    const label=node('span','',row);label.className='head-name';
    const dot=node('button','',row);dot.type='button';dot.className='head-toggle';dot.setAttribute('aria-label','Show chat and voice options');dot.setAttribute('aria-expanded','false');
    dot.addEventListener('click',event=>{event.stopPropagation();bubble.hidden=!bubble.hidden;dot.setAttribute('aria-expanded',String(!bubble.hidden));dot.setAttribute('aria-label',bubble.hidden?'Show chat and voice options':'Hide chat and voice options');});
-   entry={el,label,chatButton,voiceButton};headNodes.set(p.id,entry);
+   const debug=node('small','',el);debug.className='voice-debug';debug.hidden=true;
+   if(p.id==='self'){dot.hidden=true;bubble.hidden=true;}
+   entry={el,label,chatButton,voiceButton,debug};headNodes.set(p.id,entry);
   }
   entry.label.textContent=p.name+(p.place?' ('+p.place+')':'');
   entry.el.style.left=(r.left+p.x*r.width)+'px';entry.el.style.top=(r.top+p.y*r.height)+'px';
   const blocked=snapshot?.controls.some(c=>c.target===p.id&&c.kind==='block');
-  entry.chatButton.disabled=entry.voiceButton.disabled=!!blocked;
+  entry.chatButton.disabled=!!blocked;entry.voiceButton.disabled=!!blocked||snapshot?.authenticated===false;
+  const voice=window.MiniUKVoice?.info(p.id,p.networkId)||{};
+  entry.voiceButton.setAttribute('aria-label',voice.private?'In a private call':voice.muted?'Microphone muted':voice.speaking?'Speaking':'Request private voice call');
+  entry.voiceButton.classList.toggle('is-speaking',!!voice.speaking);entry.voiceButton.classList.toggle('is-muted',!!voice.muted);entry.voiceButton.classList.toggle('is-private',!!voice.private);
+  entry.debug.hidden=!voice.debug||p.id==='self';
+  if(!entry.debug.hidden)entry.debug.textContent=`Network/voice: ${voice.networkId||'unavailable'} · ${Number.isFinite(voice.distance)?voice.distance.toFixed(2)+'m':'distance unavailable'} · Public: ${voice.private?'paused':voice.gain>0?'audible':'out of range'} · Private: ${voice.private?'active':'off'} · Muted: ${!!voice.muted} · Blocked: ${!!blocked} · Connected: ${!!voice.connected} · Speaking: ${!!voice.speaking} · Browser source: ${voice.source?'assigned':'none'} · Gain: ${voice.gain.toFixed(2)}`;
   const pending=snapshot?.invitations.some(i=>i.sender===p.id&&i.recipient===snapshot.me&&i.state==='pending');
   entry.el.classList.toggle('has-request',!!pending);
   entry.el.hidden=!panel.hidden||document.hidden||p.y*r.height<90;

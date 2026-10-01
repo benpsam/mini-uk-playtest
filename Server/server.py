@@ -47,6 +47,8 @@ class Rooms:
     def remove(self, token):
         player = self.sessions.pop(token, None)
         if player:
+            self.voice.members.pop(token,None)
+            self.social.disconnected(player['profile'])
             room = self.rooms[player['room']]
             room.pop(token, None)
             if not room:
@@ -215,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
                     player=rooms.sessions.get(token) if isinstance(token,str) else None
                     if not player:raise Rejected(401,'Session ended. Rejoin the game.')
                     player=dict(player)
-                    online=[dict(p) for p in rooms.rooms[player['room']].values()]
+                    online=[dict(p) for p in rooms.sessions.values()]
                 action=self.path.rsplit('/',1)[-1]
                 if action=='upload':result=rooms.media.upload(data,player['profile'])
                 elif action=='open-image':result=rooms.media.open(data,player['profile'])

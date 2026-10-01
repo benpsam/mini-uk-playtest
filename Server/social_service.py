@@ -41,6 +41,12 @@ class Social:
    cached=(now,self.db.one("SELECT * FROM invitations WHERE id=? AND kind='voice' AND state='accepted' AND expires>?",(call,now)));self.call_cache[call]=cached
   row=cached[1]
   return bool(row and row['expires']>self.clock() and a in (row['sender'],row['recipient']) and (b is None or b in (row['sender'],row['recipient']) and b!=a) and not self.blocked(row['sender'],row['recipient']))
+ def call_for(self,profile):
+  return self.db.one("SELECT id FROM invitations WHERE kind='voice' AND state='accepted' AND expires>? AND (sender=? OR recipient=?)",(self.clock(),profile,profile))
+ def disconnected(self,profile):
+  with self.db.transaction():
+   self.db.execute("UPDATE invitations SET state='ended' WHERE kind='voice' AND state IN ('pending','accepted') AND (sender=? OR recipient=?)",(profile,profile))
+   self.call_cache.clear()
  def cleanup(self):
   now=self.clock()
   if now-self.last_cleanup<60:return
@@ -58,9 +64,11 @@ class Social:
   with self.db.transaction():
    self.rate(me,'poll' if action in ('poll','thread') else action,90 if action in ('poll','thread') else 20)
    self.cleanup()
+   self.db.execute("UPDATE invitations SET state='failed' WHERE kind='voice' AND state='accepted' AND id IN (SELECT id FROM voice_calls WHERE phase='Connecting' AND accepted<?)",(now-45,))
+   self.db.execute("UPDATE invitations SET state='timedout' WHERE kind='voice' AND state='pending' AND expires<=?",(now,))
    if action=='poll':
     people=[dict(id=p['profile'],name=p['name'],avatar=p['look'],online=True) for p in online if p['profile']!=me and not self.blocked(me,p['profile'])]
-    invites=self.db.all("SELECT id,sender,recipient,kind,state,expires FROM invitations WHERE (sender=? OR recipient=?) AND expires>? ORDER BY created DESC LIMIT 40",(me,me,now))
+    invites=self.db.all("SELECT id,sender,recipient,kind,state,expires FROM invitations WHERE (sender=? OR recipient=?) AND (expires>? OR (kind='voice' AND created>?)) ORDER BY created DESC LIMIT 40",(me,me,now,now-300))
     invites=[i for i in invites if not self.blocked(i['sender'],i['recipient']) and not (i['recipient']==me and self.muted(me,i['sender']))]
     statuses=self.db.all('SELECT sender,body,expires FROM statuses WHERE recipient=? AND expires>?',(me,now))
     statuses=[s for s in statuses if not self.blocked(me,s['sender']) and not self.muted(me,s['sender'])]
@@ -87,9 +95,12 @@ class Social:
     if type(data.get('accept')) is not bool:raise SocialError(400,'Choose accept or decline.')
     state='accepted' if data['accept'] else 'declined'
     if state=='accepted' and row['kind']=='voice':
+     if not player.get('authenticated') or not any(p['profile']==row['sender'] and p.get('authenticated') for p in online):raise SocialError(403,'Both players must be signed in and online for private voice.')
      occupied=self.db.one("SELECT id FROM invitations WHERE kind='voice' AND state='accepted' AND expires>? AND (sender IN (?,?) OR recipient IN (?,?))",(now,me,row['sender'],me,row['sender']))
      if occupied:raise SocialError(409,'One player is already in a private call.')
     self.db.execute('UPDATE invitations SET state=?,expires=? WHERE id=?',(state,now+(1800 if row['kind']=='voice' else 600),row['id']))
+    if state=='accepted' and row['kind']=='voice':
+     self.db.execute("INSERT INTO voice_calls VALUES(?,?,'Connecting')",(row['id'],now))
     if state=='accepted' and row['kind']=='game':
      self.db.execute('INSERT INTO matches VALUES(?,?,?,?,?,?,?,?,?)',(row['id'],row['sender'],me,'.........',row['sender'],'playing','',now,now+600))
     return dict(ok=True,state=state,id=row['id'])
@@ -108,7 +119,7 @@ class Social:
     if duration==0:self.db.execute('DELETE FROM controls WHERE owner=? AND target=? AND kind=?',(me,target,kind))
     else:
      self.db.execute('INSERT INTO controls VALUES(?,?,?,?) ON CONFLICT(owner,target,kind) DO UPDATE SET expires=excluded.expires',(me,target,kind,now+duration if duration>0 else 253402300799))
-     self.db.execute("UPDATE invitations SET state='ended' WHERE (sender=? AND recipient=?) OR (sender=? AND recipient=?)",(me,target,target,me))
+     if kind=='block':self.db.execute("UPDATE invitations SET state='ended' WHERE (sender=? AND recipient=?) OR (sender=? AND recipient=?)",(me,target,target,me))
     return dict(ok=True)
    if action=='report':
     if data.get('category') not in self.categories:raise SocialError(400,'Choose a report category.')
@@ -144,11 +155,15 @@ class Social:
    if action=='invite':
     kind=data.get('kind')
     if kind not in ('chat','voice','picture','game'):raise SocialError(400,'Unknown invitation.')
+    if kind=='voice':
+     if not player.get('authenticated') or not any(p['profile']==target and p.get('authenticated') for p in online):raise SocialError(403,'Both players must sign in with Google for private voice.')
+     busy=self.db.one("SELECT id FROM invitations WHERE kind='voice' AND state IN ('pending','accepted') AND expires>? AND (sender IN (?,?) OR recipient IN (?,?))",(now,me,target,me,target))
+     if busy:raise SocialError(409,'One player already has a call or pending request.')
     if kind=='picture' and not (os.environ.get('MINIUK_IMAGES_ENABLED')=='1' and os.environ.get('OPENAI_API_KEY')):raise SocialError(503,'Picture sharing is not configured yet.')
     if not any(p['profile']==target for p in online):raise SocialError(409,'Player is offline or in another session.')
     old=self.db.one('SELECT state,created FROM invitations WHERE sender=? AND recipient=? AND kind=? ORDER BY created DESC LIMIT 1',(me,target,kind))
     if old and now-old['created']<(86400 if old['state']=='declined' else 60):raise SocialError(429,'This player was already asked. Please wait before sending another request.')
-    identity=uid();self.db.execute('INSERT INTO invitations VALUES(?,?,?,?,?,?,?)',(identity,me,target,kind,'pending',now,now+120))
+    identity=uid();self.db.execute('INSERT INTO invitations VALUES(?,?,?,?,?,?,?)',(identity,me,target,kind,'pending',now,now+(int(os.environ.get('MINIUK_CALL_TIMEOUT','30')) if kind=='voice' else 120)))
     return dict(id=identity,state='pending')
    raise SocialError(404,'Unknown social action.')
  def game(self,action,data,me):

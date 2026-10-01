@@ -44,3 +44,5 @@
 .head-name-row .head-name{font-size:10px;font-weight:600;line-height:16px;padding:0;max-width:180px;text-shadow:0 1px 3px #000a}
 .head-toggle{position:relative;width:20px;height:20px;flex:none}.head-toggle:before{width:7px;height:7px}.head-toggle:after{content:'';position:absolute;inset:-10px -8px}
 @media(pointer:coarse){.head-toggle{width:22px;height:22px}.head-name-row .head-name{max-width:160px}}
+
+.head-toggle[hidden]{display:none}.head-voice.is-speaking{background:#9affbc55;box-shadow:0 0 6px #4cdd87}.head-voice.is-muted{opacity:.55}.head-voice.is-private:after{content:'🔒';font-size:9px;position:absolute;right:0;bottom:0}.voice-debug{max-width:260px;padding:4px;background:#101820e8;color:#b8f4cb;font:10px monospace;white-space:normal;pointer-events:none}.voice-debug[hidden]{display:none}
