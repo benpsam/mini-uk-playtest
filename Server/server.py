@@ -82,6 +82,10 @@ class Rooms:
                 name = data.get('name', '')
                 if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9 _-]{1,24}', name) or not name.strip():
                     raise Rejected(400, 'Use 1–24 letters, numbers, spaces, hyphens or underscores for your name.')
+                place = data.get('place', '')
+                if not isinstance(place, str) or len(place) > 60 or any(ord(c) < 32 or 127 <= ord(c) < 160 for c in place):
+                    raise Rejected(400, 'Use up to 60 characters for your town or country.')
+                place = place.strip()
                 code = data.get('room', '')
                 if not isinstance(code, str):
                     raise Rejected(400, 'Invalid room code.')
@@ -104,7 +108,7 @@ class Rooms:
                 if len(self.rooms.get(code, {})) >= 12:
                     raise Rejected(409, 'This room is full (12 players).')
                 token = secrets.token_urlsafe(32)
-                player = dict(state, id=secrets.token_hex(8), name=name.strip(), room=code, seen=now, last=0, credits=0, coins=[], publicSession=public)
+                player = dict(state, id=secrets.token_hex(8), name=name.strip(), place=place, room=code, seen=now, last=0, credits=0, coins=[], publicSession=public)
                 player['profile']=self.social.profile(name.strip(),state['look'],'google:'+subject if subject else 'guest:'+guest_key if guest_key else None)
                 player['authenticated']=bool(subject)
                 self.rooms.setdefault(code, {})[token] = player
@@ -145,7 +149,7 @@ class Rooms:
             return dict(room=player['room'], players=self.snapshot(player['room']))
 
     def snapshot(self, code):
-        return [{k:p[k] for k in ('id','name','profile','x','y','z','yaw','speed','look','credits','coins','city')} for p in self.rooms[code].values()]
+        return [{k:p[k] for k in ('id','name','place','profile','x','y','z','yaw','speed','look','credits','coins','city')} for p in self.rooms[code].values()]
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -202,14 +202,17 @@ function heads(players){
   keep.add(p.id);let entry=headNodes.get(p.id);
   if(!entry){
    const el=node('div',undefined,headLayer);el.className='social-head'+(p.id==='self'?' is-self':'');
-   const bubble=node('div',undefined,el);bubble.className='head-bubble';
+   const bubble=node('div',undefined,el);bubble.className='head-bubble';bubble.hidden=true;
    const chatButton=button(bubble,'Request chat','chat',()=>quick(p.id,'chat'));
    const voiceButton=button(bubble,'Request voice call','voice',()=>quick(p.id,'voice'));
    for(const [b,kind] of [[chatButton,'chat'],[voiceButton,'voice']]){b.lastChild.remove();b.className='head-'+kind;}
-   const label=node('span','',el);label.className='head-name';
+   const row=node('div',undefined,el);row.className='head-name-row';
+   const label=node('span','',row);label.className='head-name';
+   const dot=node('button','',row);dot.type='button';dot.className='head-toggle';dot.setAttribute('aria-label','Show chat and voice options');dot.setAttribute('aria-expanded','false');
+   dot.addEventListener('click',event=>{event.stopPropagation();bubble.hidden=!bubble.hidden;dot.setAttribute('aria-expanded',String(!bubble.hidden));dot.setAttribute('aria-label',bubble.hidden?'Show chat and voice options':'Hide chat and voice options');});
    entry={el,label,chatButton,voiceButton};headNodes.set(p.id,entry);
   }
-  entry.label.textContent=p.name;
+  entry.label.textContent=p.name+(p.place?' ('+p.place+')':'');
   entry.el.style.left=(r.left+p.x*r.width)+'px';entry.el.style.top=(r.top+p.y*r.height)+'px';
   const blocked=snapshot?.controls.some(c=>c.target===p.id&&c.kind==='block');
   entry.chatButton.disabled=entry.voiceButton.disabled=!!blocked;

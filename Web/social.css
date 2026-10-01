@@ -27,6 +27,14 @@
 .head-name{max-width:150px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;background:#242936ee;color:#fff;font:700 11px system-ui;border-radius:7px;padding:3px 10px}
 .has-request .head-bubble:before{content:'';position:absolute;right:-4px;top:-4px;width:11px;height:11px;border:2px solid white;border-radius:50%;background:#ee4d67;z-index:3}
 
-.social-head.is-self{transform:translate(-50%,calc(-100% - 64px))}
+.social-head.is-self{transform:translate(-50%,-100%)}
 
 @media(pointer:coarse){.head-bubble button{width:40px;height:40px;padding:10px}}
+
+.head-bubble[hidden]{display:none}
+.head-name-row{display:flex;align-items:center;background:#242936ee;border-radius:8px;pointer-events:auto;padding:0 2px 0 6px}
+.head-name-row .head-name{background:transparent;padding:3px 2px;max-width:220px}
+.head-toggle{width:30px;height:30px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;border-radius:50%;padding:0}
+.head-toggle:before{content:'';width:9px;height:9px;border-radius:50%;background:#a3edb5;box-shadow:0 0 4px #a3edb555}
+.head-toggle:focus-visible{outline:2px solid #a3edb5}.head-toggle[aria-expanded=true]:before{background:#69cd87}
+@media(pointer:coarse){.head-toggle{width:40px;height:40px}}
