@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 SCHEMA = [
+"CREATE TABLE IF NOT EXISTS public_receipts (message TEXT NOT NULL, viewer TEXT NOT NULL, PRIMARY KEY(message,viewer))",
 "CREATE TABLE IF NOT EXISTS public_messages (id TEXT PRIMARY KEY, sender TEXT NOT NULL, body TEXT NOT NULL, created DOUBLE PRECISION NOT NULL)",
 "CREATE INDEX IF NOT EXISTS public_messages_time ON public_messages(created)",
 "CREATE TABLE IF NOT EXISTS voice_calls (id TEXT PRIMARY KEY, accepted DOUBLE PRECISION NOT NULL, phase TEXT NOT NULL)",

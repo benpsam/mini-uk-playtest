@@ -48,7 +48,8 @@ class Rooms:
         player = self.sessions.pop(token, None)
         if player:
             self.voice.members.pop(token,None)
-            self.social.disconnected(player['profile'])
+            if not any(p['profile']==player['profile'] for p in self.sessions.values()):
+                self.social.disconnected(player['profile'])
             room = self.rooms[player['room']]
             room.pop(token, None)
             if not room:
@@ -119,6 +120,10 @@ class Rooms:
                 player = dict(state, id=secrets.token_hex(8), name=name.strip(), place=place, room=code, seen=now, last=0, credits=0, coins=[], publicSession=public)
                 player['profile']=self.social.profile(name.strip(),state['look'],'google:'+subject if subject else 'guest:'+guest_key if guest_key else None)
                 player['authenticated']=bool(subject)
+                player['chat_since']=self.social.clock()
+                if not any(p['profile']==player['profile'] for p in self.sessions.values()):
+                    self.social.disconnected(player['profile'])
+                self.social.connected(player['profile'])
                 self.rooms.setdefault(code, {})[token] = player
                 self.sessions[token] = player
                 return dict(token=token, id=player['id'], room=code, players=self.snapshot(code))
@@ -221,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
                 action=self.path.rsplit('/',1)[-1]
                 if action=='upload':result=rooms.media.upload(data,player['profile'])
                 elif action=='open-image':result=rooms.media.open(data,player['profile'])
-                else:result=rooms.social.handle(action,data,player,online)
+                else:result=rooms.social.handle(action,data,player,online,is_active=lambda: token in rooms.sessions)
                 self.reply(200,result);return
             if self.path == '/feedback':
                 self.reply(200, self.server.feedback.submit(data, self.client_address[0]))

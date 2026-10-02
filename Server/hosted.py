@@ -68,8 +68,9 @@ def main():
         server.feedback = Feedback(storage/"feedback.sqlite3")
         def expire_private_data():
             while True:
-                time.sleep(60)
+                time.sleep(5)
                 try:
+                    with server.rooms.lock:server.rooms.prune()
                     with server.rooms.social.db.transaction():server.rooms.social.cleanup()
                 except Exception:
                     print("Social retention cleanup failed; check database availability.",flush=True)

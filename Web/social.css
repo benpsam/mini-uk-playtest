@@ -67,3 +67,10 @@
 #stage #social-panel .chat-setting input{flex:none;margin:3px 6px 3px 10px}
 
 .chat-presence.is-online{color:#9aefba}#world-hud .world-unread{background:#3879d6;color:white}.has-request .head-bubble:before{background:#4c91ed}
+
+/* Direct player controls without nesting interactive buttons. */
+#stage #social-panel .conversation-entry{display:flex;align-items:center;gap:6px}
+#stage #social-panel .conversation-entry .conversation-row{flex:1;min-width:0}
+#stage #social-panel .chat-block{flex:none;min-height:32px;padding:4px 7px;font-size:11px;gap:4px;border-radius:10px;background:rgba(255,255,255,.06)}
+#stage #social-panel .chat-block svg{width:13px;height:13px}
+#stage #social-panel .chat-message .chat-block{margin-left:auto}
