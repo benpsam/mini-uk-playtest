@@ -11,7 +11,7 @@ def text(value,limit):
 class Social:
  def __init__(self,store=None,clock=time.time):
   self.db=store or Store();self.clock=clock;self.hits={};self.typing={};self.last_cleanup=0;self.control_cache={};self.call_cache={}
-  self.categories=[x.strip() for x in os.environ.get('MINIUK_REPORT_CATEGORIES','Harassment,Spam,Inappropriate content,Cheating,Other').split(',') if x.strip()]
+  self.categories=[x.strip() for x in os.environ.get('MINIUK_REPORT_CATEGORIES','Harassment,Spam,Inappropriate Messages,Inappropriate Images,Inappropriate Voice,Threats,Impersonation,Other').split(',') if x.strip()]
  def profile(self,name,avatar,subject=None):
   with self.db.transaction():
    row=self.db.one('SELECT id FROM profiles WHERE auth_id=?',(subject,)) if subject else None
@@ -34,7 +34,7 @@ class Social:
   if a==b:raise SocialError(400,'Choose another player.')
   if not self.db.one('SELECT id FROM profiles WHERE id=?',(b,)):raise SocialError(404,'Player unavailable.')
   if self.blocked(a,b):raise SocialError(403,'Communication unavailable.')
- def muted(self,a,b):return self.control(a,b,'mute')
+ def muted(self,a,b,channel='text'):return self.control(a,b,'mute') or self.control(a,b,'mute_'+channel)
  def active_call(self,call,a,b=None):
   cached=self.call_cache.get(call);now=self.clock()
   if not cached or cached[0]+2<now:
@@ -53,6 +53,7 @@ class Social:
   self.db.execute('DELETE FROM media WHERE expires<=? OR consumed=1',(now,))
   self.db.execute('DELETE FROM statuses WHERE expires<=?',(now,))
   self.db.execute('DELETE FROM controls WHERE expires<=?',(now,))
+  self.db.execute('DELETE FROM public_messages WHERE created<?',(now-int(os.environ.get('MINIUK_MESSAGE_DAYS','7'))*86400,))
   self.db.execute('DELETE FROM messages WHERE created<?',(now-int(os.environ.get('MINIUK_MESSAGE_DAYS','7'))*86400,))
   self.db.execute('DELETE FROM invitations WHERE created<?',(now-7*86400,))
   self.db.execute('DELETE FROM moderation_events WHERE created<?',(now-30*86400,))
@@ -62,21 +63,35 @@ class Social:
  def handle(self,action,data,player,online):
   me=player['profile'];now=self.clock()
   with self.db.transaction():
-   self.rate(me,'poll' if action in ('poll','thread') else action,90 if action in ('poll','thread') else 20)
+   self.rate(me,'poll' if action in ('poll','thread','public-thread') else action,90 if action in ('poll','thread','public-thread') else 20)
    self.cleanup()
    self.db.execute("UPDATE invitations SET state='failed' WHERE kind='voice' AND state='accepted' AND id IN (SELECT id FROM voice_calls WHERE phase='Connecting' AND accepted<?)",(now-45,))
    self.db.execute("UPDATE invitations SET state='timedout' WHERE kind='voice' AND state='pending' AND expires<=?",(now,))
    if action=='poll':
-    people=[dict(id=p['profile'],name=p['name'],avatar=p['look'],online=True) for p in online if p['profile']!=me and not self.blocked(me,p['profile'])]
+    people=[dict(id=p['profile'],name=p['name'],avatar=p['look'],place=p.get('place',''),online=True) for p in online if p['profile']!=me and not self.blocked(me,p['profile'])]
     invites=self.db.all("SELECT id,sender,recipient,kind,state,expires FROM invitations WHERE (sender=? OR recipient=?) AND (expires>? OR (kind='voice' AND created>?)) ORDER BY created DESC LIMIT 40",(me,me,now,now-300))
-    invites=[i for i in invites if not self.blocked(i['sender'],i['recipient']) and not (i['recipient']==me and self.muted(me,i['sender']))]
+    invites=[i for i in invites if not self.blocked(i['sender'],i['recipient']) and not (i['recipient']==me and self.muted(me,i['sender'],'voice' if i['kind']=='voice' else 'text'))]
     statuses=self.db.all('SELECT sender,body,expires FROM statuses WHERE recipient=? AND expires>?',(me,now))
     statuses=[s for s in statuses if not self.blocked(me,s['sender']) and not self.muted(me,s['sender'])]
     unread=self.db.all('SELECT sender,COUNT(*) AS count FROM messages WHERE recipient=? AND seen=0 GROUP BY sender',(me,))
     unread=[u for u in unread if not self.blocked(me,u['sender']) and not self.muted(me,u['sender'])]
-    controls=self.db.all('SELECT target,kind,expires FROM controls WHERE owner=? AND expires>?',(me,now))
+    controls=self.db.all('SELECT c.target,c.kind,c.expires,p.name FROM controls c JOIN profiles p ON p.id=c.target WHERE c.owner=? AND c.expires>?',(me,now))
     contacts=self.db.all('SELECT p.id,p.name,p.avatar FROM contacts c JOIN profiles p ON p.id=c.target WHERE c.owner=?',(me,))
-    return dict(me=me,people=people,invitations=invites,statuses=statuses,unread=unread,controls=controls,contacts=contacts,categories=self.categories,pictures=os.environ.get('MINIUK_IMAGES_ENABLED')=='1' and bool(os.environ.get('OPENAI_API_KEY')),authenticated=player.get('authenticated',False))
+    conversations=self.db.all("SELECT p.id,p.name,p.avatar,m.body,m.created,m.sender FROM messages m JOIN profiles p ON p.id=CASE WHEN m.sender=? THEN m.recipient ELSE m.sender END WHERE (m.sender=? OR m.recipient=?) ORDER BY m.created DESC,m.id DESC LIMIT 500",(me,me,me))
+    latest={}
+    for c in conversations:
+     if c['id'] not in latest and not self.blocked(me,c['id']) and not self.muted(me,c['id']):
+      c['avatar']=json.loads(c['avatar']);c['online']=any(p['profile']==c['id'] for p in online);latest[c['id']]=c
+    public=self.public_messages(me)
+    return dict(conversations=list(latest.values()),publicMessages=public,me=me,people=people,invitations=invites,statuses=statuses,unread=unread,controls=controls,contacts=contacts,categories=self.categories,pictures=os.environ.get('MINIUK_IMAGES_ENABLED')=='1' and bool(os.environ.get('OPENAI_API_KEY')),authenticated=player.get('authenticated',False))
+   if action=='public-thread':return dict(messages=self.public_messages(me))
+   if action=='public-send':
+    body=text(data.get('body'),1000);identity=data.get('id')
+    if not isinstance(identity,str) or not re.fullmatch('[a-f0-9-]{32,36}',identity):raise SocialError(400,'Invalid message ID.')
+    old=self.db.one('SELECT sender FROM public_messages WHERE id=?',(identity,))
+    if old and old['sender']!=me:raise SocialError(409,'Message ID already used.')
+    self.db.execute('INSERT INTO public_messages VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING',(identity,me,body,now))
+    return dict(id=identity,state='sent')
    if action=='leaderboard':
     if not player.get('authenticated'):raise SocialError(403,'Sign in with Google to view the leaderboard.')
     offset=data.get('offset',0)
@@ -115,7 +130,7 @@ class Social:
     if target==me or not self.db.one('SELECT id FROM profiles WHERE id=?',(target,)):raise SocialError(404,'Player unavailable.')
     self.control_cache.pop(me,None)
     kind=data.get('kind');duration=data.get('duration')
-    if kind not in ('mute','block') or type(duration)!=int or duration not in (0,18000,86400,-1):raise SocialError(400,'Invalid duration.')
+    if kind not in ('mute','mute_text','mute_voice','block') or type(duration)!=int or duration not in (0,18000,86400,-1):raise SocialError(400,'Invalid duration.')
     if duration==0:self.db.execute('DELETE FROM controls WHERE owner=? AND target=? AND kind=?',(me,target,kind))
     else:
      self.db.execute('INSERT INTO controls VALUES(?,?,?,?) ON CONFLICT(owner,target,kind) DO UPDATE SET expires=excluded.expires',(me,target,kind,now+duration if duration>0 else 253402300799))
@@ -123,8 +138,19 @@ class Social:
     return dict(ok=True)
    if action=='report':
     if data.get('category') not in self.categories:raise SocialError(400,'Choose a report category.')
-    self.db.execute('INSERT INTO reports VALUES(?,?,?,?,?,?,?)',(uid(),me,target,data['category'],text(data.get('notes') or 'No notes',1000),now,'open'))
+    if target==me or not self.db.one('SELECT id FROM profiles WHERE id=?',(target,)):raise SocialError(404,'Player unavailable.')
+    notes=text(data.get('notes') or 'No notes',1000)
+    if data.get('message'):
+     table='public_messages' if data.get('public') is True else 'messages'
+     row=self.db.one('SELECT * FROM '+table+' WHERE id=?',(data['message'],))
+     if not row or row['sender']!=target or (table=='messages' and row['recipient']!=me):raise SocialError(404,'Message unavailable.')
+     notes+='\nMessage '+row['id']+': '+row['body']
+    self.db.execute('INSERT INTO reports VALUES(?,?,?,?,?,?,?)',(uid(),me,target,data['category'],notes,now,'open'))
     return dict(ok=True)
+   if action=='profile':
+    p=self.db.one('SELECT id,name,avatar FROM profiles WHERE id=?',(target,))
+    if not p:raise SocialError(404,'Player unavailable.')
+    p['avatar']=json.loads(p['avatar']);p['online']=any(o['profile']==target for o in online);return p
    self.permitted(me,target)
    if action=='contact':
     self.db.execute('INSERT INTO contacts VALUES(?,?) ON CONFLICT(owner,target) DO NOTHING',(me,target));return dict(ok=True)
@@ -139,7 +165,7 @@ class Social:
     return dict(ok=True)
    if action=='typing':
     self.typing[(me,target)]=now+5;return dict(ok=True)
-   if self.muted(target,me):raise SocialError(403,'Player is unavailable for new communication.')
+   if self.muted(target,me,'voice' if action=='invite' and data.get('kind')=='voice' else 'text'):raise SocialError(403,'Player is unavailable for new communication.')
    if action=='send':
     body=text(data.get('body'),1000);identity=data.get('id')
     if not isinstance(identity,str) or not re.fullmatch('[a-f0-9-]{32,36}',identity):raise SocialError(400,'Invalid message ID.')
@@ -166,6 +192,9 @@ class Social:
     identity=uid();self.db.execute('INSERT INTO invitations VALUES(?,?,?,?,?,?,?)',(identity,me,target,kind,'pending',now,now+(int(os.environ.get('MINIUK_CALL_TIMEOUT','30')) if kind=='voice' else 120)))
     return dict(id=identity,state='pending')
    raise SocialError(404,'Unknown social action.')
+ def public_messages(self,me):
+  rows=self.db.all('SELECT m.id,m.sender,m.body,m.created,p.name FROM public_messages m JOIN profiles p ON p.id=m.sender ORDER BY m.created DESC,m.id DESC LIMIT 100')
+  return [r for r in reversed(rows) if not self.blocked(me,r['sender']) and not self.muted(me,r['sender'])]
  def game(self,action,data,me):
   row=self.db.one('SELECT * FROM matches WHERE id=?',(data.get('id'),))
   if not row or me not in (row['a'],row['b']):raise SocialError(404,'Game unavailable.')

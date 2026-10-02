@@ -103,7 +103,7 @@ class Voice:
             with rooms.social.db.lock:
                 ended=bool(call and not rooms.social.active_call(call,player['profile']))
             candidates=rooms.sessions if call else rooms.rooms[player['room']]
-            peers = [dict(id=p['id'],profile=p['profile'],name=p['name'],epoch=self.members[t]['epoch'],distance=distance(player,p),private=bool(call),canSend=not rooms.social.muted(p['profile'],player['profile']),canHear=not rooms.social.muted(player['profile'],p['profile']),x=p['x'],y=p['y']+1.8,z=p['z'])
+            peers = [dict(id=p['id'],profile=p['profile'],name=p['name'],epoch=self.members[t]['epoch'],distance=distance(player,p),private=bool(call),canSend=not rooms.social.muted(p['profile'],player['profile'],'voice'),canHear=not rooms.social.muted(player['profile'],p['profile'],'voice'),x=p['x'],y=p['y']+1.8,z=p['z'])
                      for t,p in candidates.items() if t!=token and t in self.members and self.allowed(rooms,token,t)]
             nearby = {p['id'] for p in peers}
             both=bool(call and peers and all(p['id'] in member['connected'] and player['id'] in self.members[next(t for t,v in rooms.sessions.items() if v['id']==p['id'])]['connected'] for p in peers))

@@ -16,110 +16,141 @@ const paths={
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');const p=document.createElementNS(svg.namespaceURI,'path');p.setAttribute('d',paths[name]||paths.chat);svg.append(p);return svg;}
 function node(tag,text,parent){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(parent)parent.append(n);return n;}
 function button(parent,label,kind,fn){const b=node('button',undefined,parent);b.type='button';b.title=label;b.setAttribute('aria-label',label);if(kind)b.append(icon(kind));b.append(document.createTextNode(label));b.onclick=()=>Promise.resolve().then(fn).catch(showError);return b;}
-const launch=button(document.getElementById('stage'),'Players','people',()=>open());launch.id='social-launch';launch.hidden=true;
-const panel=node('section',undefined,document.getElementById('stage'));panel.id='social-panel';panel.hidden=true;panel.setAttribute('aria-label','Private player interactions');
-const header=node('header',undefined,panel),title=node('strong','Players',header);button(header,'Close','close',()=>close());
-const notice=node('p','',panel);notice.setAttribute('role','status');const body=node('div',undefined,panel);
+const launch=button(document.getElementById('stage'),'Chat','chat',()=>open());launch.id='social-launch';launch.hidden=true;
+const panel=node('section',undefined,document.getElementById('stage'));panel.id='social-panel';panel.hidden=true;panel.setAttribute('aria-label','Public and private chat');
+const header=node('header',undefined,panel),title=node('strong','Chat',header);button(header,'Settings',null,settings);button(header,'Minimize','close',()=>close());
+const tabs=node('nav',undefined,panel);tabs.className='chat-tabs';tabs.setAttribute('aria-label','Chat type');const publicTab=button(tabs,'Public',null,()=>conversation(false));const privateTab=button(tabs,'Private',null,list);
+const requestsBox=node('div',undefined,panel);requestsBox.className='chat-requests';
+const notice=node('p','',panel);notice.setAttribute('role','status');const body=node('div',undefined,panel);body.className='chat-body';
 const css=node('link',undefined,document.head);css.rel='stylesheet';css.href='social.css';
 for(const event of ['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend','keydown','keyup'])panel.addEventListener(event,e=>e.stopPropagation());
 panel.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
 function showError(e){notice.textContent=e.message||String(e);}
-function busyState(){window.MiniUKSocialOpen=!panel.hidden;}
-function close(){panel.hidden=true;busyState();clearTimeout(threadTimer);document.getElementById('game')?.focus();}
-function clear(){body.replaceChildren();notice.textContent='';clearTimeout(threadTimer);}
+function busyState(){window.MiniUKSocialOpen=!panel.hidden;if(!panel.hidden){const voice=document.getElementById('voice-panel');if(voice)voice.open=false;}}
+function close(){saveDraft();panel.hidden=true;busyState();clearTimeout(threadTimer);document.getElementById('game')?.focus();}
+function clear(){saveDraft();body.className='chat-body';body.replaceChildren();notice.textContent='';clearTimeout(threadTimer);}
 async function api(action,data={}){
  if(!session)throw Error('Connect to the game first.');
  const s=session;const r=await fetch(s.endpoint+'/social/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:s.token,...data}),signal:AbortSignal.timeout(25000),cache:'no-store'});
  const result=await r.json();if(!r.ok)throw Error(result.error||'Request failed.');return result;
 }
-function name(id){return snapshot?.people.find(p=>p.id===id)?.name||snapshot?.contacts.find(p=>p.id===id)?.name||'Player';}
+function person(id){return snapshot?.people.find(p=>p.id===id)||snapshot?.conversations?.find(p=>p.id===id)||snapshot?.publicMessages?.find(p=>p.sender===id)||snapshot?.controls.find(p=>p.target===id)||{name:'Player'};}
+function name(id){return person(id).name;}
 async function open(id){
- panel.hidden=false;busyState();launch.focus();clear();
- if(id){selected=id;return actions();}
- await refresh();list();
+ panel.hidden=false;preview.hidden=true;busyState();
+ try{await refresh();if(id){selected=id;actions();}else conversation(false);}catch(e){showError(e);}
 }
+function selectTab(privateMode){publicTab.setAttribute('aria-pressed',String(!privateMode));privateTab.setAttribute('aria-pressed',String(privateMode));}
 function list(){
- view='list';
- clear();selected=null;title.textContent='Players in this session';
- button(body,'Global leaderboard','board',()=>leaderboard(0));
- for(const p of snapshot?.people||[])button(body,p.name+' · online','people',()=>{selected=p.id;actions();});
- if(!snapshot?.people.length)node('p','No other players are in this session yet.',body);
- if(snapshot?.contacts.length){node('h3','Saved contacts',body);for(const c of snapshot.contacts)button(body,c.name,'people',()=>{selected=c.id;actions();});}
- if(snapshot?.controls.length){
-  node('h3','Muted / blocked',body);
-  for(const c of snapshot.controls)button(body,name(c.target)+' · undo '+c.kind,c.kind,async()=>{await api('control',{target:c.target,kind:c.kind,duration:0});await refresh();list();});
+ clear();view='list';selected=null;title.textContent='Chat';selectTab(true);
+ const rows=new Map();for(const p of snapshot?.conversations||[])rows.set(p.id,p);for(const p of snapshot?.people||[])rows.set(p.id,{...rows.get(p.id),...p});
+ if(!snapshot?.conversations?.length)node('p','No private conversations yet.',body);
+ for(const p of rows.values()){
+  const b=button(body,'',null,()=>{selected=p.id;chat();});b.className='conversation-row';
+  const avatar=node('span',p.name.slice(0,1).toUpperCase(),b);avatar.className='chat-avatar';
+  const content=node('span',undefined,b);node('strong',p.name,content);node('small',p.body||'Start a private conversation',content);
+  if(p.online){const dot=node('span','●',b);dot.className='online-dot';dot.title='Online';}
+  const n=snapshot.unread.find(u=>u.sender===p.id)?.count;if(n)node('b',String(n),b).className='chat-badge';
  }
- renderRequests();
 }
 function renderRequests(){
- const requests=(snapshot?.invitations||[]).filter(i=>i.recipient===snapshot.me&&i.state==='pending');
- for(const i of requests){
-  const card=node('div',undefined,body);card.className='social-card';node('p',name(i.sender)+' requests '+i.kind,card);
-  button(card,'Accept',i.kind==='voice'?'voice':i.kind==='game'?'game':i.kind==='chat'?'chat':'picture',async()=>{await api('respond',{id:i.id,accept:true});if(i.kind==='voice'){activeCall=i.id;window.MiniUKVoice.setPrivate(i.id);}if(i.kind==='chat'){selected=i.sender;await refresh();return chat();}if(i.kind==='game'){selected=i.sender;matchId=i.id;return game();}await refresh();list();});
-  button(card,'Decline','block',async()=>{await api('respond',{id:i.id,accept:false});await refresh();list();});
+ const pending=(snapshot?.invitations||[]).filter(i=>i.recipient===snapshot.me&&i.state==='pending');
+ const signature=JSON.stringify(pending);if(requestsBox.dataset.signature===signature)return;requestsBox.dataset.signature=signature;requestsBox.replaceChildren();
+ for(const i of pending){
+  const card=node('div',undefined,requestsBox);card.className='social-card';node('span',name(i.sender)+(i.kind==='voice'?' wants a private voice chat.':' requests '+i.kind+'.'),card);
+  button(card,'Accept',null,async()=>{await api('respond',{id:i.id,accept:true});if(i.kind==='voice'){activeCall=i.id;window.MiniUKVoice.setPrivate(i.id);}await refresh();if(i.kind==='chat'){selected=i.sender;chat();}if(i.kind==='game'){selected=i.sender;matchId=i.id;game();}});
+  button(card,'Decline',null,async()=>{await api('respond',{id:i.id,accept:false});await refresh();});
  }
- for(const s of snapshot?.statuses||[])node('p',name(s.sender)+': '+s.body+' · temporary status',body);
- for(const u of snapshot?.unread||[])button(body,name(u.sender)+' · '+u.count+' unread','chat',()=>{selected=u.sender;chat();});
 }
 function actions(){
- view='actions';
- clear();title.textContent=name(selected);
- button(body,'Back to players','people',()=>list());
- const grid=node('div',undefined,body);grid.className='social-grid';
- button(grid,'Private Chat','chat',chat);
- button(grid,'Voice Call','voice',()=>invite('voice'));
- button(grid,'Live Status','status',statusForm);
- const picture=button(grid,'Send Picture','picture',()=>pictureForm(false));picture.disabled=!snapshot?.pictures;picture.title=picture.disabled?'Picture sharing awaits moderation setup':'Request picture permission';
- const once=button(grid,'View Once','once',()=>pictureForm(true));once.disabled=!snapshot?.pictures;
- button(grid,'Play Game','game',()=>invite('game'));
- button(grid,'Mute','mute',()=>control('mute'));
- button(grid,'Block','block',()=>control('block'));
- button(grid,'Report','report',reportForm);
- button(body,'Save contact','people',async()=>{await api('contact',{target:selected});notice.textContent='Contact saved.';});
- if(!snapshot?.pictures)node('p','Picture sharing is disabled until safety checking is configured.',body);
- const call=snapshot?.invitations.find(i=>i.kind==='voice'&&i.state==='accepted'&&(i.sender===selected||i.recipient===selected));
- if(call)button(body,'Join accepted private call','voice',()=>{activeCall=call.id;window.MiniUKVoice.setPrivate(call.id);notice.textContent='Tap Turn on mic in the voice controls. Public voice is disconnected.';});
- if(activeCall)button(body,'End private call','voice',async()=>{await api('end',{id:activeCall});window.MiniUKVoice.endPrivate();activeCall='';actions();});
- const match=snapshot?.invitations.find(i=>i.kind==='game'&&i.state==='accepted'&&(i.sender===selected||i.recipient===selected));
- if(match)button(body,'Open noughts and crosses','game',()=>{matchId=match.id;game();});
+ clear();view='actions';selectTab(true);title.textContent=name(selected);
+ node('p',person(selected).online?'● Online':'Offline',body).className=person(selected).online?'online-dot':'';
+ const row=node('div',undefined,body);row.className='player-actions';button(row,'Chat','chat',chat);button(row,'Voice','voice',()=>quick(selected,'voice'));button(row,'More',null,more);
+}
+function more(){
+ clear();view='more';title.textContent=name(selected);button(body,'Back',null,chat);
+ button(body,'View profile','people',async()=>{const p=await api('profile',{target:selected});clear();view='profile';title.textContent=p.name;button(body,'Back',null,more);drawAvatar(body,p.avatar);node('p',p.online?'● Online':'Offline',body);node('p',person(selected).place||'',body);});
+ const muted=snapshot?.controls.some(c=>c.target===selected&&c.kind.startsWith('mute'));
+ button(body,muted?'Unmute':'Mute','mute',()=>muted?unmute(selected):control('mute'));
+ const blocked=snapshot?.controls.some(c=>c.target===selected&&c.kind==='block');
+ button(body,blocked?'Unblock':'Block','block',async()=>{if(blocked){await setControl(selected,'block',0);more();}else control('block');}).className='danger';
+ button(body,'Report','report',()=>reportForm()).className='danger';
+}
+function drawAvatar(parent,look){
+ const a=node('canvas',undefined,parent);a.width=40;a.height=48;a.className='profile-avatar';a.setAttribute('aria-label','Player character');const c=a.getContext('2d');let v=look;try{if(typeof v==='string')v=JSON.parse(v);}catch{}v=v||[];
+ c.fillStyle=['#f2c29c','#c98c61','#87543b','#4a2e24'][v[1]]||'#c98c61';c.fillRect(7,6,26,28);c.fillStyle=['#263a48','#ad261f','#ead4a6','#2e3b54','#cc7d1f','#5c3d73'][v[4]]||'#2e3b54';c.fillRect(2,34,36,14);c.fillStyle='#252a30';c.fillRect(12,16,4,5);c.fillRect(24,16,4,5);c.fillRect(15,26,12,2);return a;
 }
 async function invite(kind){const r=await api('invite',{target:selected,kind});notice.textContent='Request sent. Waiting for accept or decline.';await refresh();return r;}
 function input(parent,label,max=1000){node('label',label,parent);const el=node('textarea',undefined,parent);el.maxLength=max;el.style.fontSize='16px';el.setAttribute('autocapitalize','sentences');el.setAttribute('aria-label',label);return el;}
-async function chat(){
- view='chat';
- clear();title.textContent='Private · '+name(selected);button(body,'Back','people',actions);
- const log=node('div',undefined,body);log.className='social-messages';log.setAttribute('aria-live','polite');
- const presence=node('p','',body),draft=input(body,'Message (only you and this player)',1000);
- draft.oninput=()=>{if(Date.now()-lastTyping>3000){lastTyping=Date.now();api('typing',{target:selected}).catch(()=>{});}};
- button(body,'Send','chat',async()=>{if(!draft.value.trim())return;await api('send',{target:selected,body:draft.value,id:(crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join(''))});draft.value='';notice.textContent='Message sent';await update();});
- const images=node('div',undefined,body);let target=selected;
- async function update(){
-  if(panel.hidden||selected!==target||!log.isConnected)return;
-  const data=await api('thread',{target});log.replaceChildren();images.replaceChildren();
-  const seen=[];
-  for(const m of data.messages){node('p',(m.sender===snapshot.me?'You: ':'Them: ')+m.body+' · '+(m.seen?'Seen':m.delivered?'Delivered':'Sent'),log);if(m.recipient===snapshot.me&&!m.seen)seen.push(m.id);}
-  if(seen.length&&!document.hidden)await api('seen',{target,ids:seen});
-  presence.textContent=data.typing?'Typing…':data.online?'Online in this session':'Offline / unavailable';
-  for(const m of data.media)if(!m.consumed)button(images,m.once_only?'View Once · open picture':'Open picture',m.once_only?'once':'picture',()=>viewImage(m.id));
+function chat(){conversation(true);}
+const drafts=new Map();let currentDraft=null,currentDraftKey='',renderOpen=null,publicSeen=new Set(),notificationSeen=new Set(),firstPoll=true,previewTimer,autoTimer;
+function readStored(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
+let prefs=readStored('miniuk-chat-preferences',{preview:true,sounds:false,timestamps:false,autoHide:false,size:'normal',previewSeconds:5});
+function persist(){try{localStorage.setItem('miniuk-chat-preferences',JSON.stringify(prefs));}catch{}}
+function saveDraft(){if(currentDraft?.isConnected)drafts.set(currentDraftKey,currentDraft.value);currentDraft=null;}
+function messageId(){return crypto.randomUUID?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');}
+function hiddenMessages(){return new Set(readStored('miniuk-hidden-messages-'+snapshot?.me,[]));}
+function conversation(privateMode){
+ if(!session||!snapshot)return;clear();view=privateMode?'chat':'public';selectTab(privateMode);title.textContent='Chat';body.classList.add('conversation');panel.dataset.textSize=prefs.size;
+ const target=privateMode?selected:null;const top=node('div',undefined,body);top.className='conversation-top';
+ if(privateMode){button(top,'Back',null,list);drawAvatar(top,person(target).avatar);node('strong',name(target),top);button(top,'Voice','voice',()=>quick(target,'voice')).className='icon-only';button(top,'More',null,more);}
+ else node('small','Public · everyone on this server',top);
+ const log=node('div',undefined,body);log.className='chat-log';log.setAttribute('role','log');log.setAttribute('aria-label',privateMode?'Private messages':'Public messages');
+ const presence=node('small','',body);presence.className='chat-presence';const extras=node('div',undefined,body);extras.className='chat-extras';extras.hidden=true;
+ const composer=node('form',undefined,body);composer.className='chat-composer';composer.setAttribute('aria-label','Send message');
+ if(privateMode)button(composer,'More actions',null,()=>{extras.hidden=!extras.hidden;extras.replaceChildren();if(extras.hidden)return;if(snapshot.pictures){button(extras,'Send image','picture',()=>pictureForm(false));button(extras,'View once image','once',()=>pictureForm(true));}button(extras,'Invite to game','game',()=>invite('game'));const match=snapshot.invitations.find(i=>i.kind==='game'&&i.state==='accepted'&&(i.sender===target||i.recipient===target));if(match)button(extras,'Open game','game',()=>{matchId=match.id;game();});}).textContent='+';
+ const draft=node('textarea',undefined,composer);draft.rows=1;draft.maxLength=1000;draft.placeholder='Type a message…';draft.setAttribute('aria-label','Message');draft.setAttribute('enterkeyhint','send');draft.setAttribute('autocapitalize','sentences');currentDraftKey=target||'public';currentDraft=draft;draft.value=drafts.get(currentDraftKey)||'';
+ button(composer,'Emoji',null,()=>{extras.hidden=!extras.hidden;extras.replaceChildren();if(!extras.hidden)for(const emoji of ['😀','👋','❤️','👍','😂','🎉','😊','☕'])button(extras,emoji,null,()=>{draft.setRangeText(emoji,draft.selectionStart,draft.selectionEnd,'end');draft.focus();draft.dispatchEvent(new Event('input'));});}).textContent='☺';
+ const send=button(composer,'Send',null,submit);send.textContent='➤';let sending=false;
+ async function submit(){if(sending||!draft.value.trim())return;const value=draft.value;sending=true;send.disabled=true;try{await api(privateMode?'send':'public-send',{...(privateMode?{target}:{}),body:value,id:messageId()});if(draft.value===value)draft.value='';drafts.set(target||'public',draft.value);await update();notice.textContent='';}finally{sending=false;send.disabled=false;}}
+ composer.onsubmit=e=>{e.preventDefault();submit().catch(showError);};
+ draft.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();submit().catch(showError);}};
+ draft.oninput=()=>{if(privateMode&&Date.now()-lastTyping>3000){lastTyping=Date.now();api('typing',{target}).catch(()=>{});}activity();};
+ let signature='';
+ function render(data){if(!log.isConnected||panel.hidden)return;const filtered=data.messages.filter(m=>!hiddenMessages().has(m.id));const next=JSON.stringify([filtered,prefs.timestamps,prefs.size]);
+  if(next!==signature){const bottom=log.scrollHeight-log.scrollTop-log.clientHeight<50;signature=next;log.replaceChildren();
+   if(!filtered.length)node('p',privateMode?'Say hello 👋':'No messages yet. Say hello 👋',log).className='chat-empty';
+   for(const m of filtered){const row=node('div',undefined,log);row.className='chat-message'+(m.sender===snapshot.me?' own':'');if(prefs.timestamps)node('time',new Date(m.created*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),row);node('strong',m.sender===snapshot.me?'You':privateMode?name(target):m.name,row);node('span',m.body,row);if(privateMode&&m.sender===snapshot.me)node('small',m.seen?'Seen':m.delivered?'Delivered':'Sent',row);messageMenu(row,m,!privateMode);}
+   if(bottom)log.scrollTop=log.scrollHeight;
+  }
+  if(!privateMode)for(const m of data.messages)publicSeen.add(m.id);
+  else{presence.textContent=data.typing?'Typing…':data.online?'● Online':'Offline';presence.classList.toggle('is-online',!!data.online&&!data.typing);const unseen=data.messages.filter(m=>m.recipient===snapshot.me&&!m.seen).map(m=>m.id);if(unseen.length&&!document.hidden)api('seen',{target,ids:unseen}).then(refresh).catch(showError);
+   for(const m of data.media||[])if(!m.consumed&&!log.querySelector('[data-media="'+m.id+'"]')){const b=button(log,m.once_only?'Open view once image':'Open image','picture',()=>viewImage(m.id));b.dataset.media=m.id;}
+  }
  }
- async function tick(){try{await update();}catch(e){showError(e);}if(!panel.hidden&&log.isConnected)threadTimer=setTimeout(tick,2000);}
- await tick();
+ async function update(){const data=await api(privateMode?'thread':'public-thread',privateMode?{target}:{});if(log.isConnected)render(data);}
+ renderOpen=()=>{if(!privateMode)render({messages:snapshot.publicMessages||[]});};
+ async function tick(){try{await update();}catch(e){if(log.isConnected)showError(e);}if(log.isConnected&&!panel.hidden)threadTimer=setTimeout(tick,3000);}
+ void tick();activity();
 }
-function statusForm(){
- view='status';
- clear();button(body,'Back','people',actions);const value=input(body,'Temporary status for '+name(selected),100);
- const duration=node('select',undefined,body);for(const [v,l] of [[300,'5 minutes'],[900,'15 minutes'],[3600,'1 hour']]){const o=node('option',l,duration);o.value=v;}
- button(body,'Share status','status',async()=>{await api('status',{target:selected,body:value.value,duration:Number(duration.value)});notice.textContent='Status shared only with this player.';});
-}
+function activity(){clearTimeout(autoTimer);if(prefs.autoHide)autoTimer=setTimeout(()=>{if(!panel.contains(document.activeElement)&&!currentDraft?.value)close();else activity();},45000);}
+panel.addEventListener('pointerdown',activity);panel.addEventListener('focusin',activity);
+async function setControl(target,kind,duration){await api('control',{target,kind,duration});await refresh();notice.textContent=duration?'Preference saved.':'Restriction removed.';}
+async function unmute(target){for(const kind of ['mute','mute_text','mute_voice'])await api('control',{target,kind,duration:0});await refresh();more();}
 function control(kind){
- view='control';
- clear();button(body,'Back','people',actions);
- for(const [duration,label] of [[18000,'5 Hours'],[86400,'24 Hours'],[-1,'Until manually reversed'],[0,'Remove '+kind]])button(body,label,kind,async()=>{await api('control',{target:selected,kind,duration});if(activeCall){window.MiniUKVoice.endPrivate();activeCall='';}await refresh();notice.textContent=kind+' updated.';});
+ clear();view='control';title.textContent=kind==='block'?'Block '+name(selected)+'?':'Mute '+name(selected);button(body,'Cancel',null,more);
+ if(kind==='block'){node('p','This prevents communication with this player through the game’s block system.',body);button(body,'Block','block',async()=>{await setControl(selected,'block',-1);more();}).className='danger';return;}
+ const type=node('select',undefined,body);type.setAttribute('aria-label','Mute type');for(const [v,l] of [['mute_text','Mute text'],['mute_voice','Mute voice'],['mute','Mute both']])node('option',l,type).value=v;
+ const duration=node('select',undefined,body);duration.setAttribute('aria-label','Mute duration');for(const [v,l] of [[18000,'5 hours'],[86400,'24 hours'],[-1,'Until unmuted']])node('option',l,duration).value=v;
+ button(body,'Save mute','mute',async()=>{await setControl(selected,type.value,Number(duration.value));more();});
 }
-function reportForm(){
- view='report';
- clear();button(body,'Back','people',actions);const category=node('select',undefined,body);for(const c of snapshot.categories)node('option',c,category);
- const notes=input(body,'Optional notes',1000);button(body,'Submit report','report',async()=>{await api('report',{target:selected,category:category.value,notes:notes.value});notice.textContent='Report submitted for review.';});
+function reportForm(message=null,isPublic=false){
+ clear();view='report';title.textContent='Report '+name(selected);button(body,'Cancel',null,more);
+ const category=node('select',undefined,body);category.setAttribute('aria-label','Report category');for(const c of snapshot.categories)node('option',c,category);
+ const notes=input(body,'Optional notes',1000);button(body,'Submit report','report',async()=>{await api('report',{target:selected,category:category.value,notes:notes.value,...(message?{message:message.id,public:isPublic}:{})});notice.textContent='Report submitted.';}).className='danger';
+}
+function settings(){
+ clear();view='settings';title.textContent='Chat settings';button(body,'Back',null,()=>conversation(false));
+ for(const [key,label] of [['preview','Message preview'],['sounds','Chat sounds'],['timestamps','Timestamps'],['autoHide','Auto hide after 45 seconds']]){const l=node('label',label,body);l.className='chat-setting';const c=node('input',undefined,l);c.type='checkbox';c.checked=!!prefs[key];c.onchange=()=>{prefs[key]=c.checked;persist();};}
+ for(const [key,label,choices] of [['size','Text size',['small','normal','large']],['previewSeconds','Preview seconds',[3,5,8]]]){const l=node('label',label,body);const c=node('select',undefined,l);for(const v of choices)node('option',String(v),c).value=v;c.value=prefs[key];c.onchange=()=>{prefs[key]=key==='previewSeconds'?Number(c.value):c.value;persist();panel.dataset.textSize=prefs.size;};}
+ for(const group of ['Muted','Blocked']){node('h4',group+' players',body);const entries=snapshot.controls.filter(c=>group==='Muted'?c.kind.startsWith('mute'):c.kind==='block');if(!entries.length)node('small','None',body);for(const c of entries)button(body,(c.name||name(c.target))+' · '+(group==='Muted'?'Unmute '+c.kind.replace('mute_',''):'Unblock'),null,async()=>{await setControl(c.target,c.kind,0);settings();});}
+}
+function messageMenu(row,m,isPublic){
+ let timer,startPoint;const show=()=>{row.querySelector('.message-options')?.remove();document.querySelectorAll('.message-options').forEach(n=>n.remove());const menu=node('div',undefined,row);menu.className='message-options';
+ button(menu,'Copy',null,async()=>{await navigator.clipboard.writeText(m.body);menu.remove();});
+ if(m.sender===snapshot.me)button(menu,'Delete for me',null,()=>{const ids=hiddenMessages();ids.add(m.id);try{localStorage.setItem('miniuk-hidden-messages-'+snapshot.me,JSON.stringify([...ids].slice(-1000)));}catch{}row.remove();});
+ else{button(menu,'Report message','report',()=>{selected=m.sender;reportForm(m,isPublic);}).className='danger';button(menu,'Mute player','mute',()=>{selected=m.sender;control('mute');});button(menu,'Block player','block',()=>{selected=m.sender;control('block');}).className='danger';}button(menu,'Close',null,()=>menu.remove());};
+ row.oncontextmenu=e=>{e.preventDefault();show();};row.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){startPoint=[e.clientX,e.clientY];timer=setTimeout(show,550);}});for(const event of ['pointerup','pointercancel'])row.addEventListener(event,()=>clearTimeout(timer));row.addEventListener('pointermove',e=>{if(startPoint&&Math.hypot(e.clientX-startPoint[0],e.clientY-startPoint[1])>8)clearTimeout(timer);});
 }
 function pictureForm(once){
  view='picture';
@@ -174,20 +205,26 @@ async function leaderboard(offset){
  if(offset)button(body,'Previous page','board',()=>leaderboard(Math.max(0,offset-20)));
  if(result.entries.length===20)button(body,'Next page','board',()=>leaderboard(offset+20));
 }
+const preview=node('button','',document.getElementById('stage'));preview.id='chat-preview';preview.hidden=true;preview.type='button';preview.onclick=()=>open();
+const callBar=node('div',undefined,document.getElementById('stage'));callBar.id='chat-call-bar';callBar.hidden=true;const callLabel=node('span','',callBar);button(callBar,'Mute',null,()=>window.MiniUKVoice?.toggleMic());button(callBar,'End',null,()=>window.MiniUKVoice?.endCall());let connectedAt=0,lastCall='';
+for(const ev of ['pointerdown','pointerup','keydown','keyup','touchstart','touchend'])callBar.addEventListener(ev,e=>e.stopPropagation());
+setInterval(()=>{const v=window.MiniUKVoice?.state?.();callBar.hidden=!session||!v?.id;if(callBar.hidden){connectedAt=0;lastCall='';return;}if(lastCall!==v.id){connectedAt=0;lastCall=v.id;}if(v.phase==='Connected'&&!connectedAt)connectedAt=Date.now();const seconds=connectedAt?Math.floor((Date.now()-connectedAt)/1000):0;const i=snapshot?.invitations.find(i=>i.id===v.id);const peer=i?(i.sender===snapshot.me?i.recipient:i.sender):'';callLabel.textContent='Private · '+name(peer)+' · '+(v.phase==='Connected'?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0'):v.phase);const mic=callBar.querySelector('button');mic.textContent=!v.hasMic?'Turn on mic':v.muted?'Unmute':'Mute';mic.setAttribute('aria-label',mic.textContent);mic.title=mic.textContent;},1000);
+let audio;
+document.addEventListener('pointerdown',()=>{if(!prefs.sounds)return;try{audio ||= new (window.AudioContext||window.webkitAudioContext)();void audio.resume();}catch{}},{passive:true});
+function ping(){if(!prefs.sounds||audio?.state!=='running')return;const o=audio.createOscillator(),g=audio.createGain();o.connect(g);g.connect(audio.destination);o.frequency.value=660;g.gain.setValueAtTime(.035,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.15);o.start();o.stop(audio.currentTime+.16);}
 async function refresh(){
- const generation=requestGeneration;const next=await api('poll');if(generation!==requestGeneration)return;
- snapshot=next;window.MiniUKHud?.social(next);
- const accepted=snapshot.invitations.find(i=>i.kind==='voice'&&i.state==='accepted');
- if(!activeCall&&accepted){activeCall=accepted.id;window.MiniUKVoice.setPrivate(accepted.id);}
- if(activeCall&&!snapshot.invitations.some(i=>i.id===activeCall&&i.state==='accepted')){window.MiniUKVoice.endPrivate();activeCall='';}
- const count=snapshot.invitations.filter(i=>i.recipient===snapshot.me&&i.state==='pending').length+snapshot.unread.reduce((a,u)=>a+u.count,0);
- launch.setAttribute('aria-label','Players'+(count?' · '+count+' new interactions':''));launch.lastChild.textContent=count?'Players ('+count+')':'Players';
+ const generation=requestGeneration;const next=await api('poll');if(generation!==requestGeneration)return;snapshot=next;
+ const messages=[...(next.publicMessages||[]),...(next.conversations||[]).filter(c=>c.sender!==next.me).map(c=>({...c,id:'private-'+c.id+'-'+c.created}))];
+ const fresh=messages.filter(m=>!notificationSeen.has(m.id)&&m.sender!==next.me);for(const m of messages)notificationSeen.add(m.id);
+ if(firstPoll){for(const m of next.publicMessages||[])publicSeen.add(m.id);firstPoll=false;}else if(fresh.length&&panel.hidden){const m=fresh.at(-1);if(prefs.preview){preview.textContent=(m.name||name(m.sender))+': '+m.body;preview.hidden=false;clearTimeout(previewTimer);previewTimer=setTimeout(()=>preview.hidden=true,prefs.previewSeconds*1000);}ping();}
+ if(!panel.hidden&&view==='public')renderOpen?.();
+ const publicUnread=(next.publicMessages||[]).filter(m=>m.sender!==next.me&&!publicSeen.has(m.id)).length;next.publicUnread=publicUnread;window.MiniUKHud?.social(next);
+ const accepted=next.invitations.find(i=>i.kind==='voice'&&i.state==='accepted');if(!activeCall&&accepted){activeCall=accepted.id;window.MiniUKVoice.setPrivate(accepted.id);}if(activeCall&&!next.invitations.some(i=>i.id===activeCall&&i.state==='accepted')){window.MiniUKVoice.endPrivate();activeCall='';}
+ const privateCount=next.unread.reduce((a,u)=>a+u.count,0),pending=next.invitations.filter(i=>i.recipient===next.me&&i.state==='pending').length,count=privateCount+pending+publicUnread;
+ launch.setAttribute('aria-label','Chat'+(count?' · '+count+' unread':''));launch.lastChild.textContent=count?'Chat '+count:'Chat';privateTab.textContent='Private'+(privateCount?' · '+privateCount:'');publicTab.textContent='Public'+(publicUnread?' · '+publicUnread:'');renderRequests();
 }
-async function poll(){
- if(!session)return;
- try{await refresh();if(!panel.hidden&&view==='quick'){const ready=snapshot.invitations.find(i=>i.kind==='chat'&&i.state==='accepted'&&(i.sender===selected||i.recipient===selected));if(ready&&quickKind==='chat')await chat();else if(quickRequest){const request=snapshot.invitations.find(i=>i.id===quickRequest);if(!request)notice.textContent='Request expired. Close and try again.';else if(request.state==='timedout')notice.textContent='No answer. Request timed out.';else if(request.state==='failed')notice.textContent='Private voice could not connect. Please try again.';else if(request.state==='ended')notice.textContent='Call ended.';else if(request.state==='declined')notice.textContent='Request declined.';else if(request.state==='accepted')notice.textContent='Voice request accepted. Turn on your mic using the voice controls.';}}if(!panel.hidden&&view==='list')list();else if(!panel.hidden&&view==='actions'){const statusText=notice.textContent;actions();notice.textContent=statusText;}}catch(e){if(!panel.hidden)showError(e);}
- if(session)pollTimer=setTimeout(poll,document.hidden?10000:3000);
-}
+async function poll(){if(!session)return;try{await refresh();if(!panel.hidden&&view==='list')list();if(!panel.hidden&&view==='quick'&&quickRequest){const r=snapshot.invitations.find(i=>i.id===quickRequest);notice.textContent=!r?'Request expired.':r.state==='accepted'?'Accepted. Use Turn on mic in the call bar.':r.state==='pending'?'Waiting for a reply…':'Call '+r.state+'.';}}catch(e){if(!panel.hidden)showError(e);}if(session)pollTimer=setTimeout(poll,document.hidden?10000:3000);}
+// Head controls
 // Head controls follow Unity's projected avatar positions, never world coordinates from the network.
 const headLayer=node('div',undefined,document.getElementById('stage'));headLayer.id='social-heads';
 const headNodes=new Map();let headTime=0;
@@ -204,7 +241,7 @@ function heads(players){
    const el=node('div',undefined,headLayer);el.className='social-head'+(p.id==='self'?' is-self':'');
    const bubble=node('div',undefined,el);bubble.className='head-bubble';bubble.hidden=true;
    const chatButton=button(bubble,'Request chat','chat',()=>quick(p.id,'chat'));
-   const voiceButton=button(bubble,'Request voice call','voice',()=>quick(p.id,'voice'));
+   const voiceButton=button(bubble,'Request voice call','voice',()=>quick(p.id,'voice'));button(bubble,'More options',null,()=>open(p.id)).textContent='•••';
    for(const [b,kind] of [[chatButton,'chat'],[voiceButton,'voice']]){b.lastChild.remove();b.className='head-'+kind;}
    const row=node('div',undefined,el);row.className='head-name-row';
    const label=node('span','',row);label.className='head-name';
@@ -230,29 +267,17 @@ function heads(players){
  for(const [id,entry] of headNodes)if(!keep.has(id)){entry.el.remove();headNodes.delete(id);}
 }
 async function quick(id,kind){
- if(id==='self'){if(kind==='voice'){const v=document.getElementById('voice-panel');v.open=true;return;}return choose('chat');}
- panel.hidden=false;busyState();clear();view='quick';selected=id;quickKind=kind;quickRequest='';
- try{
-  await refresh();title.textContent=name(id);
-  const incoming=snapshot.invitations.find(i=>i.sender===id&&i.recipient===snapshot.me&&i.kind===kind&&i.state==='pending');
-  if(incoming){renderRequests();return;}
-  const accepted=snapshot.invitations.find(i=>(i.sender===id||i.recipient===id)&&i.kind===kind&&i.state==='accepted');
-  if(accepted&&kind==='chat')return chat();
-  if(accepted){notice.textContent='Private call accepted. Enable your microphone using the voice button.';return;}
-  const outgoing=snapshot.invitations.find(i=>i.sender===snapshot.me&&i.recipient===id&&i.kind===kind&&i.state==='pending');
-  quickRequest=outgoing?outgoing.id:(await invite(kind)).id;
-  notice.textContent=(kind==='chat'?'Chat':'Voice')+' request sent. Waiting for '+name(id)+'.';
-  button(body,'More options','people',actions);
- }catch(e){showError(e);}
+ if(id==='self')return choose('chat');panel.hidden=false;busyState();selected=id;await refresh();if(kind==='chat')return chat();clear();view='quick';quickKind=kind;quickRequest='';selectTab(true);title.textContent=name(id);
+ const accepted=snapshot.invitations.find(i=>(i.sender===id||i.recipient===id)&&i.kind==='voice'&&i.state==='accepted');if(accepted){notice.textContent='Private call accepted. Use the call bar to turn on your mic.';return;}
+ const incoming=snapshot.invitations.find(i=>i.sender===id&&i.recipient===snapshot.me&&i.kind==='voice'&&i.state==='pending');if(incoming){notice.textContent='Accept or decline the request above.';return;}
+ const outgoing=snapshot.invitations.find(i=>i.sender===snapshot.me&&i.recipient===id&&i.kind==='voice'&&i.state==='pending');quickRequest=outgoing?outgoing.id:(await invite('voice')).id;notice.textContent='Voice request sent. Waiting for '+name(id)+'.';button(body,'Back to chat',null,chat);
 }
 setInterval(()=>{if(performance.now()-headTime>500)clearHeads();},500);
 async function choose(kind='people'){
- panel.hidden=false;busyState();clear();view='chooser';selected=null;
- try{await refresh();title.textContent=kind==='game'?'Challenge a player':kind==='chat'?'Choose someone to chat with':'Players';
- for(const p of snapshot.people)button(body,p.name,kind==='game'?'game':kind==='chat'?'chat':'people',()=>{selected=p.id;if(kind==='game'){actions();return invite('game');}if(kind==='chat')return quick(p.id,'chat');actions();});
- if(!snapshot.people.length)node('p','No other players in this session yet. Invite a friend to the same city.',body);
- button(body,'Contacts & requests','people',list);
- }catch(e){showError(e);}
+ panel.hidden=false;preview.hidden=true;busyState();try{await refresh();if(kind==='chat')return conversation(false);if(kind==='game'){clear();view='games';title.textContent='Choose a player';for(const p of snapshot.people)button(body,p.name,'game',()=>{selected=p.id;actions();return invite('game');});button(body,'Game leaderboard','board',()=>leaderboard(0));return;}list();}catch(e){showError(e);}
 }
-window.MiniUKSocial={choose,heads,session(endpoint,token,id){requestGeneration++;clearTimeout(pollTimer);session={endpoint,token,id};launch.hidden=false;void poll();},leave(){clearHeads();requestGeneration++;clearTimeout(pollTimer);session=null;snapshot=null;selected=null;activeCall='';launch.hidden=true;close();},select(id){open(id).catch(showError);}};
+document.addEventListener('keydown',e=>{if(!session||e.defaultPrevented||e.isComposing)return;if(e.key==='Enter'&&panel.hidden&&!/INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)&&!document.body.classList.contains('world-menu-open')){e.preventDefault();e.stopImmediatePropagation();open().then(()=>body.querySelector('textarea')?.focus());}},true);
+function viewport(){const v=window.visualViewport;panel.style.setProperty('--chat-keyboard',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');panel.style.setProperty('--chat-viewport',(v?.height||innerHeight)+'px');}window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);window.addEventListener('resize',viewport);viewport();
+
+window.MiniUKSocial={choose,heads,close,session(endpoint,token,id){requestGeneration++;clearTimeout(pollTimer);session={endpoint,token,id};firstPoll=true;publicSeen.clear();notificationSeen.clear();drafts.clear();launch.hidden=false;void poll();},leave(){clearHeads();requestGeneration++;clearTimeout(pollTimer);session=null;snapshot=null;selected=null;activeCall='';launch.hidden=true;preview.hidden=true;callBar.hidden=true;close();drafts.clear();},select(id){open(id).catch(showError);}};
 })();

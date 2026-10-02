@@ -300,7 +300,7 @@ async function switchMode(id){
  stream?.getAudioTracks().forEach(t=>t.enabled=false);
  for(const key of [...peers.keys()])drop(key);
  privateCall=id;callState=id?'Connecting':'Idle';ack=0;voiceStates=[];
- panel.open=true;panel.querySelector('strong').textContent=id?'Private voice':'Public nearby voice';controls();
+ panel.open=!window.MiniUKSocial;panel.querySelector('strong').textContent=id?'Private voice':'Public nearby voice';controls();
  if(!stream){status(id?'Private call accepted. Tap Turn on mic to connect.':'Public voice selected. Tap Turn on mic.');return;}
  try{const joined=await request('/voice/join',{call:id});if(!alive(g))return;config=joined;epoch=joined.epoch;muted=savedMuted;stream.getAudioTracks().forEach(t=>t.enabled=!muted);controls();monitorMic(g);void poll(g);}
  catch(e){if(g===generation){callState='Failed';stop('Voice could not switch safely. Tap Turn on mic to retry.');}}
@@ -311,5 +311,5 @@ async function finishPrivate(){
  else{privateCall='';callState='Ended';stop('Private call ended. Your microphone is off.');panel.querySelector('strong').textContent='Public nearby voice';}
 }
 navigator.mediaDevices?.addEventListener?.('devicechange',()=>{if(micUnavailable())status('Audio device changed. Use Reconnect microphone in Sound settings.');});
-window.MiniUKVoice={info:voiceInfo,setPrivate(id){if(!id||privateCall===id)return;if(!privateCall)publicBefore={on:!!stream,muted};void switchMode(id);},endPrivate(){void finishPrivate();},ready(){panel.hidden=false;controls();status('Voice becomes available after joining the world.');},session(endpoint,token,id){stop();privateCall='';publicBefore=null;callState='Idle';session={endpoint:endpoint.replace(/\/$/,''),token,id};panel.hidden=false;controls();status('Tap Turn on mic to speak with nearby players.');},leave(){stop();privateCall='';publicBefore=null;callState='Ended';session=null;controls();status('Voice is disconnected. Join the world to reconnect.');}};
+window.MiniUKVoice={state(){return {id:privateCall,phase:callState,muted,hasMic:!!stream};},toggleMic(){get(stream?'voice-mute':'voice-enable').click();},endCall(){get('voice-end-private').click();},info:voiceInfo,setPrivate(id){if(!id||privateCall===id)return;if(!privateCall)publicBefore={on:!!stream,muted};void switchMode(id);},endPrivate(){void finishPrivate();},ready(){panel.hidden=false;controls();status('Voice becomes available after joining the world.');},session(endpoint,token,id){stop();privateCall='';publicBefore=null;callState='Idle';session={endpoint:endpoint.replace(/\/$/,''),token,id};panel.hidden=false;controls();status('Tap Turn on mic to speak with nearby players.');},leave(){stop();privateCall='';publicBefore=null;callState='Ended';session=null;controls();status('Voice is disconnected. Join the world to reconnect.');}};
 })();
