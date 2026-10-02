@@ -31,7 +31,7 @@ class Store:
   if self.pg:
    import psycopg
    from psycopg.rows import dict_row
-   self.db=psycopg.connect(database_url,row_factory=dict_row,autocommit=True,connect_timeout=10)
+   self.db=psycopg.connect(database_url,row_factory=dict_row,autocommit=True,connect_timeout=10,options="-c statement_timeout=8000 -c lock_timeout=5000")
 
   else:
    if str(path)!=':memory:':Path(path).parent.mkdir(parents=True,exist_ok=True)
@@ -41,7 +41,8 @@ class Store:
   for statement in SCHEMA:self.db.execute(statement)
  @contextmanager
  def transaction(self):
-  with self.lock:
+  if not self.lock.acquire(timeout=10):raise TimeoutError('Database is busy. Please retry.')
+  try:
    self.db.execute('BEGIN')
    try:
     if self.pg:self.db.execute('SELECT pg_advisory_xact_lock(624910301)')
@@ -49,6 +50,7 @@ class Store:
     self.db.execute('COMMIT')
    except Exception:
     self.db.execute('ROLLBACK');raise
+  finally:self.lock.release()
  def execute(self,sql,args=()):
   return self.db.execute(sql.replace('?', '%s') if self.pg else sql,args)
  def one(self,sql,args=()):

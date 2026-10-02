@@ -19,21 +19,26 @@ class Login:
     def restore(self, token):
         if not token or len(token)>128:return None
         key=self.digest(token)
+        # Always take database before in-memory lock. Never hold the login lock
+        # while waiting for database IO, which also blocked /auth/config.
         with self.db.transaction():
             row=self.db.one('SELECT subject,expires FROM auth_sessions WHERE digest=?',(key,))
-        if not row or row['expires']<=time.time():return None
-        session=self.sessions.get(key)
-        if not session or session['expires']<=time.time():
-            ticket=secrets.token_urlsafe(32)
-            session={'sub':row['subject'],'expires':min(row['expires'],time.time()+3600),'ticket':ticket}
-            self.sessions[key]=session
-            self.grants[ticket]={'expires':session['expires'],'sub':row['subject']}
-        return session
+            if not row or row['expires']<=time.time():return None
+            with self.lock:
+                session=self.sessions.get(key)
+                if not session or session['expires']<=time.time():
+                    ticket=secrets.token_urlsafe(32)
+                    session={'sub':row['subject'],'expires':min(row['expires'],time.time()+3600),'ticket':ticket}
+                    self.sessions[key]=session
+                    self.grants[ticket]={'expires':session['expires'],'sub':row['subject']}
+                return dict(session)
     def logout(self, token):
         key=self.digest(token)
-        with self.db.transaction():self.db.execute('DELETE FROM auth_sessions WHERE digest=?',(key,))
-        previous=self.sessions.pop(key,None)
-        if previous:self.grants.pop(previous['ticket'],None)
+        with self.db.transaction():
+            self.db.execute('DELETE FROM auth_sessions WHERE digest=?',(key,))
+            with self.lock:
+                previous=self.sessions.pop(key,None)
+                if previous:self.grants.pop(previous['ticket'],None)
     def prune(self):
         now = time.time()
         for store in (self.pending, self.sessions, self.grants):
@@ -73,16 +78,17 @@ class Login:
                 self.pending[nonce] = {'expires':time.time()+600}
             return self.reply(h, 200, {'clientId':client, 'nonce':nonce}, self.header('miniuk_nonce',nonce,600))
         if h.command == 'GET' and path == '/auth/session':
-            with self.lock:
-                self.prune(); session = self.restore(self.cookie(h,'miniuk_login'))
+            with self.lock:self.prune()
+            try:session = self.restore(self.cookie(h,'miniuk_login'))
+            except Exception:return self.reply(h,503,{'error':'Saved account is temporarily unavailable. Please retry.'})
             return self.reply(h,200,{'signedIn':bool(session),'wardrobeTicket':session['ticket'] if session else '', 'expires':session['expires'] if session else 0})
         origins = {'https://www.miniukworld.com','https://miniukworld.com','https://mini-uk-playtest.onrender.com'}
         origins.update(x.strip() for x in os.environ.get('AUTH_ORIGINS','').split(',') if x.strip())
         if h.command != 'POST' or h.headers.get('Origin') not in origins or h.headers.get('X-MiniUK-Login') != '1':
             return self.reply(h,403,{'error':'Open sign-in from the Mini UK website.'})
         if path == '/auth/logout':
-            with self.lock:
-                self.logout(self.cookie(h,'miniuk_login'))
+            try:self.logout(self.cookie(h,'miniuk_login'))
+            except Exception:return self.reply(h,503,{'error':'Could not sign out. Please retry.'})
             return self.reply(h,200,{'signedIn':False},self.header('miniuk_login','',0))
         if path != '/auth/google': return self.reply(h,404,{'error':'Unknown login request.'})
         if not client: return self.reply(h,503,{'error':'Google sign-in is not configured yet. Continue as guest.'})
@@ -100,10 +106,9 @@ class Login:
             from google.auth.transport.requests import Request
             claims=id_token.verify_oauth2_token(credential,Request(),client)
             if not claims.get('sub') or not secrets.compare_digest(str(claims.get('nonce','')),nonce): raise ValueError()
-            with self.lock:
-                self.prune()
-                session=self.create_session(claims['sub'])
-                saved=self.restore(session)
+            with self.lock:self.prune()
+            session=self.create_session(claims['sub'])
+            saved=self.restore(session)
             return self.reply(h,200,{'signedIn':True,'wardrobeTicket':saved['ticket'],'expires':saved['expires']},self.header('miniuk_login',session,30*86400))
         except (ValueError,TypeError,AttributeError):
             return self.reply(h,401,{'error':'Sign-in could not be verified. Refresh and try again, or continue as guest.'})

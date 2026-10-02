@@ -36,7 +36,16 @@ class HostedHandler(Handler):
         file = asset_path(self.path)
         if file is None:
             return self.reply(404, {"error": "Not found."})
+        stat = file.stat()
+        etag = '"%x-%x"' % (stat.st_mtime_ns, stat.st_size)
+        if self.headers.get('If-None-Match') == etag:
+            self.send_response(304)
+            self.send_header('ETag', etag)
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            return
         self.send_response(200)
+        self.send_header('ETag', etag)
         self.send_header("Content-Type", mimetypes.guess_type(file.name)[0] or "application/octet-stream")
         self.send_header("Content-Length", str(file.stat().st_size))
         self.send_header("Cache-Control", "no-cache")
