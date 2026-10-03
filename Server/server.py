@@ -1,3 +1,4 @@
+from highlands import Highlands
 """Mini UK private London playtest. Python 3.10+, no third-party packages."""
 from pathlib import Path
 from social_service import Social, SocialError
@@ -36,6 +37,7 @@ class Rooms:
         self.social = social or Social()
         self.media = Media(self.social)
         self.transport = Transport()
+        self.highlands = Highlands()
 
     def prune(self):
         now = self.clock()
@@ -131,6 +133,8 @@ class Rooms:
             if not isinstance(token, str) or token not in self.sessions:
                 raise Rejected(401, 'Session ended. Please join again.')
             player = self.sessions[token]
+            if path.startswith('/highlands/'):
+                return self.highlands.handle(self,player,token,path.rsplit('/',1)[-1],data)
             if path.startswith('/bus/'):
                 return self.transport.handle(self,player,token,path.rsplit('/',1)[-1])
             if path.startswith('/voice/'):
@@ -156,6 +160,13 @@ class Rooms:
             if state['city']!=player.get('city','london'):raise Rejected(400,'Reconnect after city travel.')
             if token in self.transport.seats:
                 bus=self.transport.pose();seat=self.transport.seats[token];state.update(x=bus['x']+(-.7 if seat%2==0 else .7),y=.95,z=bus['z']+(seat//2-1.5)*1.2,speed=0)
+            self.highlands.prune(self)
+            if token in self.highlands.seats:
+                room,ride,seat=self.highlands.seats[token]
+                pose=self.highlands.pose(room,ride);angle=math.radians(pose['yaw'])
+                dx=0 if ride>=7 else -.5 if seat%2==0 else .5
+                dz=0 if ride>=7 else .65 if seat<2 else -.65
+                state.update(x=pose['x']+dx*math.cos(angle)+dz*math.sin(angle),y=pose['y']+(.7 if ride>=7 else .9 if ride==6 else .85),z=pose['z']-dx*math.sin(angle)+dz*math.cos(angle),yaw=pose['yaw'],speed=0)
             if state['look']!=player['look']:
                 with self.social.db.transaction():self.social.db.execute('UPDATE profiles SET avatar=? WHERE id=?',(json.dumps(state['look']),player['profile']))
             player.update(state, seen=now, last=now)
@@ -231,7 +242,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/feedback':
                 self.reply(200, self.server.feedback.submit(data, self.client_address[0]))
                 return
-            if self.path not in ('/bus/state','/bus/board','/bus/exit','/join', '/sync', '/leave', '/voice/join', '/voice/poll', '/voice/signal', '/voice/leave'):
+            if self.path not in ('/highlands/state','/highlands/board','/highlands/depart','/highlands/exit','/bus/state','/bus/board','/bus/exit','/join', '/sync', '/leave', '/voice/join', '/voice/poll', '/voice/signal', '/voice/leave'):
                 raise Rejected(404, 'Unknown request.')
             guest_key=None
             if self.path=='/join':
