@@ -6,6 +6,7 @@ import secrets
 import hmac
 import hashlib
 import base64
+import re
 
 class VoiceError(Exception):
     def __init__(self, status, message):
@@ -13,7 +14,11 @@ class VoiceError(Exception):
 
 def ice_config(player_id):
     servers = [{'urls': ['stun:stun.l.google.com:19302']}]
-    urls = [v.strip() for v in os.environ.get('MINIUK_TURN_URLS', '').split(',') if v.strip()]
+    # Accept copied provider lists, including quoted STUN + TURN URLs.
+    values = [v for v in re.split(r'[\s,;\[\]\"\']+', os.environ.get('MINIUK_TURN_URLS', '')) if v]
+    urls = list(dict.fromkeys(v for v in values if v.startswith(('turn:', 'turns:'))))
+    stun = list(dict.fromkeys(v for v in values if v.startswith(('stun:', 'stuns:'))))
+    if stun: servers[0]['urls'] = stun
     secret = os.environ.get('MINIUK_TURN_SECRET', '')
     if urls and secret and all(v.startswith(('turn:', 'turns:')) for v in urls):
         username = str(int(time.time()) + 3600) + ':' + player_id
@@ -35,9 +40,9 @@ class Voice:
         self.members = {}
         self.sequence = 0
         self.links=set()
-        self.max_distance=float(os.environ.get('MINIUK_VOICE_MAX_DISTANCE','3'))
-        self.fade_start=float(os.environ.get('MINIUK_VOICE_FADE_START','2'))
-        self.exit_distance=float(os.environ.get('MINIUK_VOICE_EXIT_DISTANCE','3.2'))
+        self.max_distance=float(os.environ.get('MINIUK_VOICE_MAX_DISTANCE','5'))
+        self.fade_start=float(os.environ.get('MINIUK_VOICE_FADE_START',str(min(3,self.max_distance-1))))
+        self.exit_distance=float(os.environ.get('MINIUK_VOICE_EXIT_DISTANCE',str(self.max_distance+.5)))
         self.interval=int(os.environ.get('MINIUK_VOICE_POLL_MS','350'))
         if not (0<=self.fade_start<self.max_distance<=self.exit_distance<=10 and 200<=self.interval<=2000):
             raise ValueError('Invalid voice distance or polling settings')
@@ -118,7 +123,7 @@ class Voice:
             raise VoiceError(429, 'Voice updates too frequent.')
         member['hits'] = hits + [now]
         kind, sdp = data.get('type'), data.get('sdp')
-        if kind not in ('offer', 'answer','candidate') or not isinstance(sdp, str) or (kind!='candidate' and not sdp.startswith('v=0')) or len(sdp) > 20000:
+        if kind not in ('offer', 'answer','candidate','restart') or not isinstance(sdp, str) or (kind in ('offer','answer') and not sdp.startswith('v=0')) or len(sdp) > 20000:
             raise VoiceError(400, 'Invalid voice signal.')
         negotiation=data.get('negotiation','')
         if not isinstance(negotiation,str) or len(negotiation)>80:raise VoiceError(400,'Invalid negotiation ID.')

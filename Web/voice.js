@@ -4,10 +4,10 @@
 let session=null, generation=0, stream=null, timer=null, epoch='', ack=0, muted=true, pending=false;
 let config=null, peers=new Map(), errors=0, audioContext=null;
 let previousAudioSession=null,privateCall='',callState='Idle',publicBefore=null,localSpeaking=false,publicListening=true,voiceStates=[],lastLocal=null,negotiationCounter=0;
-function gain(person){if(person.canHear===false)return 0;const settings=config?.settings||{maxDistance:3,fadeStart:2};return person.private?1:Math.max(0,Math.min(1,(settings.maxDistance-person.distance)/(settings.maxDistance-settings.fadeStart)));}
+function gain(person){if(person.canHear===false)return 0;const settings=config?.settings||{maxDistance:5,fadeStart:3};return person.private?1:Math.max(0,Math.min(1,(settings.maxDistance-person.distance)/(settings.maxDistance-settings.fadeStart)));}
 function sendPermission(peer,person){
  const allowed=person.canSend!==false;if(peer.canSend===allowed)return;peer.canSend=allowed;
- for(const sender of peer.pc.getSenders?.()||[]){if(sender.replaceTrack)void sender.replaceTrack(allowed?stream?.getAudioTracks()[0]||null:null).catch(()=>{peer.pc.close();peer.failedAt=Date.now()-8001;});}
+ for(const sender of peer.pc.getSenders?.()||[]){if(sender.replaceTrack)void sender.replaceTrack(allowed?stream?.getAudioTracks()[0]||null:null).catch(()=>{peer.pc.close();peer.failedAt=Date.now();});}
 }
 function spatial(peer,person,local){
  peer.person=person;
@@ -38,7 +38,7 @@ function unlockAudio(){
 }
 function volume(peer){const value=(peer.person?.private||publicListening?peer.gain:0)*Number(get("voice-volume").value);if(peer.gainNode){if(peer.gainNode.gain.setTargetAtTime)peer.gainNode.gain.setTargetAtTime(value,audioContext.currentTime,.06);else peer.gainNode.gain.value=value;}else peer.audio.volume=value;}
 const panel=document.createElement('details');panel.id='voice-panel';panel.hidden=true;
-panel.innerHTML=`<summary aria-label="Nearby voice controls"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="16" rx="4"/><path d="M8 14v2a8 8 0 0 0 16 0v-2M16 24v5M11 29h10"/></svg><span id="voice-badge">Off</span></summary><div class="voice-controls"><strong>Nearby voice</strong><p id="voice-status" role="status" aria-live="polite">Turn on your mic to speak to nearby players.</p><button id="voice-enable" type="button">Turn on mic</button><button id="voice-end-private" type="button" hidden>End private chat</button><button id="voice-mute" type="button" hidden>Mute mic</button><div id="voice-mic-check" hidden><label for="voice-mic-level">Your microphone</label><meter id="voice-mic-level" min="0" max="1" value="0"></meter><small id="voice-mic-status" role="status">Speak to check your mic.</small></div><button id="voice-hear" type="button" hidden>Resume sound</button><details class="voice-settings"><summary>Sound settings</summary><label>Listening volume <output id="voice-level">100%</output><input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><button id="voice-public-listen" type="button">Mute public listening</button><button id="voice-restart" type="button" hidden>Reconnect microphone</button><button id="voice-test" type="button">Test speaker</button><p id="voice-output-status" role="status"></p><button id="voice-stop" type="button" hidden>Disconnect voice</button><p class="voice-note">Turning on your mic shares your voice with players within 3 metres. No recording by Mini UK. Direct connections share network addresses. Use headphones.</p></details></div>`;
+panel.innerHTML=`<summary aria-label="Nearby voice controls"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="16" rx="4"/><path d="M8 14v2a8 8 0 0 0 16 0v-2M16 24v5M11 29h10"/></svg><span id="voice-badge">Off</span></summary><div class="voice-controls"><strong>Nearby voice</strong><p id="voice-status" role="status" aria-live="polite">Turn on your mic to speak to nearby players.</p><button id="voice-enable" type="button">Turn on mic</button><button id="voice-end-private" type="button" hidden>End private chat</button><button id="voice-mute" type="button" hidden>Mute mic</button><div id="voice-mic-check" hidden><label for="voice-mic-level">Your microphone</label><meter id="voice-mic-level" min="0" max="1" value="0"></meter><small id="voice-mic-status" role="status">Speak to check your mic.</small></div><button id="voice-hear" type="button" hidden>Resume sound</button><details class="voice-settings"><summary>Sound settings</summary><label>Listening volume <output id="voice-level">100%</output><input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><button id="voice-public-listen" type="button">Mute public listening</button><button id="voice-restart" type="button" hidden>Reconnect microphone</button><button id="voice-test" type="button">Test speaker</button><p id="voice-output-status" role="status"></p><button id="voice-stop" type="button" hidden>Disconnect voice</button><p class="voice-note">Turning on your mic shares your voice with players within 5 metres. No recording by Mini UK. Direct connections share network addresses. Use headphones.</p></details></div>`;
 document.getElementById('stage').appendChild(panel);
 // Keep mobile gestures on the audio controls away from the game canvas.
 for(const event of ['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend','keydown','keyup'])
@@ -65,6 +65,7 @@ voiceStyle.textContent=`
 `;
 panel.appendChild(voiceStyle);
 const get=id=>document.getElementById(id), status=text=>get('voice-status').textContent=text;
+function updateRangeNote(){const note=panel.querySelector('.voice-note');if(note)note.textContent=`Turning on your mic shares your voice with players within ${config?.settings?.maxDistance||5} metres. No recording by Mini UK. Direct connections share network addresses. Use headphones.`;}
 function micUnavailable(){return !!stream&&stream.getAudioTracks().some(t=>t.muted||t.readyState==='ended');}
 function controls(){
  get('voice-end-private').hidden=!privateCall;
@@ -124,7 +125,7 @@ function report(){
  if(privateCall&&callState!=='Connected'){status('Private call '+callState.toLowerCase()+'. Waiting for both audio connections.');return;}
  const connected=[...peers.values()].filter(p=>p.pc.connectionState==='connected').length;
  const failed=[...peers.values()].some(p=>p.pc.connectionState==='failed'||p.pc.connectionState==='disconnected');
- if(!peers.size){status(privateCall?'Waiting for the other player to turn on their mic in this private call.':'No nearby microphones connected. Both players must tap Turn on mic and stay within 3 metres.'+(config&&!config.relayAvailable?' Voice relay is not configured on the server.':''));return;}
+ if(!peers.size){status(privateCall?'Waiting for the other player to turn on their mic in this private call.':`No nearby microphones connected. Both players must tap Turn on mic and stay within ${config?.settings?.maxDistance||5} metres.`+(config&&!config.relayAvailable?' Voice relay is not configured on the server.':''));return;}
  status(failed?(config?.relayAvailable?'Voice connection interrupted. Reconnecting automatically…':'This network may need a voice relay. The game owner must configure TURN; changing microphone permission will not fix that.'):`${connected} ${privateCall?'private':'public nearby'} voice connection${connected===1?'':'s'} · ${muted?'microphone muted':'microphone on'}`+(config&&!config.relayAvailable?' · limited-network test (no relay)':''));
 }
 function playIncoming(peer,g){
@@ -133,7 +134,7 @@ function playIncoming(peer,g){
  });
 }
 function attachIncoming(peer,incoming,g){
- peer.source?.disconnect();peer.gainNode?.disconnect();peer.source=null;peer.gainNode=null;
+ peer.source?.disconnect();peer.gainNode?.disconnect();peer.panner?.disconnect();peer.analyser?.disconnect();peer.source=null;peer.gainNode=null;peer.panner=null;peer.analyser=null;
  peer.audio.srcObject=incoming;
  try{
   if(audioContext){
@@ -145,7 +146,7 @@ function attachIncoming(peer,incoming,g){
    output.connect(peer.gainNode).connect(audioContext.destination);
   }
  }catch{
-  peer.source?.disconnect();peer.gainNode?.disconnect();peer.source=null;peer.gainNode=null;
+  peer.source?.disconnect();peer.gainNode?.disconnect();peer.panner?.disconnect();peer.analyser?.disconnect();peer.source=null;peer.gainNode=null;peer.panner=null;peer.analyser=null;
  }
  // Keep the remote media element playing for mobile WebRTC, but mute its
  // output when Web Audio provides the audible path (avoids doubled sound).
@@ -166,7 +167,7 @@ function makePeer(person,g,negotiation){
 async function flushCandidates(peer,person,g){
  if(peer.flushing)return;peer.flushing=true;
  try{while(peer.candidates.length&&alive(g)&&peers.get(person.id)===peer){const candidate=peer.candidates.shift();await request('/voice/signal',{to:person.id,toEpoch:person.epoch,type:'candidate',sdp:JSON.stringify(candidate),negotiation:peer.negotiation});}}
- catch(e){if(alive(g))status('Network candidate delivery failed; reconnecting.');peer.failedAt=Date.now()-8001;}
+ catch(e){if(alive(g))status('Network candidate delivery failed; reconnecting.');peer.failedAt=Date.now();}
  finally{peer.flushing=false;}
 }
 async function sendDescription(peer,person,type,g){
@@ -187,7 +188,7 @@ async function description(peer,kind,g){
 async function offer(person,g){
  const peer=makePeer(person,g);
  try {await sendDescription(peer,person,'offer',g);}
- catch(error){if(alive(g)&&peers.get(person.id)===peer){drop(person.id);status(error.message);}}
+ catch(error){if(alive(g)&&peers.get(person.id)===peer){peer.failedAt=Date.now();status(error.message);}}
 }
 async function poll(g){
  if(!alive(g))return;
@@ -201,17 +202,24 @@ async function poll(g){
    const person=present.get(message.sender);
    if(!person||person.epoch!==message.epoch){ack=Math.max(ack,message.seq);continue;}
    let peer=peers.get(person.id);
+   try{
    if(message.type==='offer'&&person.id<session.id){
     // A new offer replaces any failed connection, but only the smaller ID initiates.
     peer=makePeer(person,g,message.negotiation);
     const answering=peer;
-    void (async()=>{await remoteDescription(answering,{type:'offer',sdp:message.sdp});await sendDescription(answering,person,'answer',g);})().catch(error=>{if(alive(g))status(error.message);});
+    void (async()=>{await remoteDescription(answering,{type:'offer',sdp:message.sdp});await sendDescription(answering,person,'answer',g);})().catch(()=>{if(alive(g)&&peers.get(person.id)===answering)answering.failedAt=Date.now();});
+   }else if(message.type==='restart'&&session.id<person.id&&peer&&peer.negotiation===message.negotiation){
+    peer.failedAt=Date.now()-8001;
    }else if(message.type==='answer'&&peer&&peer.negotiation===message.negotiation&&peer.pc.signalingState==='have-local-offer'){
     await remoteDescription(peer,{type:'answer',sdp:message.sdp});
    }else if(message.type==='candidate'&&peer&&peer.negotiation===message.negotiation){
     const candidate=JSON.parse(message.sdp);if(peer.pc.remoteDescription)await peer.pc.addIceCandidate(candidate);else peer.remoteCandidates.push(candidate);
    }
-   ack=Math.max(ack,message.seq);
+   }catch(error){
+    // One player's stale or failed negotiation must not mute the whole group.
+    if(peer&&peers.get(person.id)===peer)peer.failedAt=Date.now();
+    if(alive(g))status('Retrying a player voice connection…');
+   }finally{ack=Math.max(ack,message.seq);}
   }
   if(!alive(g))return;
   // Parallel ICE gathering avoids making larger rooms miss their heartbeat.
@@ -219,6 +227,11 @@ async function poll(g){
    const peer=peers.get(person.id),now=Date.now();
    const retry=peer&&((peer.failedAt&&now-peer.failedAt>8000)||(peer.pc.connectionState!=='connected'&&now-peer.createdAt>25000));
    if(session.id<person.id&&(!peer||retry))void offer(person,g);
+   else if(retry&&peer&&now-(peer.restartRequestedAt||0)>8000){
+    // The answering side can fail while the initiating side still reports connected.
+    peer.restartRequestedAt=now;
+    void request('/voice/signal',{to:person.id,toEpoch:person.epoch,type:'restart',sdp:'',negotiation:peer.negotiation}).catch(()=>{});
+   }
   }
   report();
  }catch(error){if(!alive(g))return;stream.getAudioTracks().forEach(t=>t.enabled=false);for(const peer of peers.values()){peer.gain=0;volume(peer);}errors++;status(error.message);if(errors>=3){callState='Failed';stop('Voice disconnected. Enable voice to reconnect.');return;}}
@@ -239,7 +252,7 @@ async function enable(){
   if(document.hidden)throw Error('Return to the game and tap Enable voice again.');
   if(g!==generation){captured.getTracks().forEach(track=>track.stop());return;}
   stream=captured;const joined=await request('/voice/join',{call:privateCall},joining);
-  if(!alive(g)){request('/voice/leave',{epoch:joined.epoch},joining).catch(()=>{});return;}config=joined;epoch=config.epoch;muted=false;pending=false;
+  if(!alive(g)){request('/voice/leave',{epoch:joined.epoch},joining).catch(()=>{});return;}config=joined;updateRangeNote();epoch=config.epoch;muted=false;pending=false;
   stream.getAudioTracks().forEach(track=>{
    track.onended=()=>{if(alive(g))stop('Microphone disconnected. Tap Turn on mic to retry.');};
    track.onmute=track.onunmute=()=>{if(alive(g)){controls();report();}};
@@ -302,7 +315,7 @@ async function switchMode(id){
  privateCall=id;callState=id?'Connecting':'Idle';ack=0;voiceStates=[];
  panel.open=!window.MiniUKSocial;panel.querySelector('strong').textContent=id?'Private voice':'Public nearby voice';controls();
  if(!stream){status(id?'Private call accepted. Tap Turn on mic to connect.':'Public voice selected. Tap Turn on mic.');return;}
- try{const joined=await request('/voice/join',{call:id});if(!alive(g))return;config=joined;epoch=joined.epoch;muted=savedMuted;stream.getAudioTracks().forEach(t=>t.enabled=!muted);controls();monitorMic(g);void poll(g);}
+ try{const joined=await request('/voice/join',{call:id});if(!alive(g))return;config=joined;updateRangeNote();epoch=joined.epoch;muted=savedMuted;stream.getAudioTracks().forEach(t=>t.enabled=!muted);controls();monitorMic(g);void poll(g);}
  catch(e){if(g===generation){callState='Failed';stop('Voice could not switch safely. Tap Turn on mic to retry.');}}
 }
 async function finishPrivate(){
