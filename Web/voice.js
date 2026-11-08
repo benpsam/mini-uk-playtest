@@ -4,6 +4,108 @@
 let session=null, generation=0, stream=null, timer=null, epoch='', ack=0, muted=true, pending=false;
 let config=null, peers=new Map(), errors=0, audioContext=null;
 let previousAudioSession=null,privateCall='',callState='Idle',publicBefore=null,localSpeaking=false,publicListening=true,voiceStates=[],lastLocal=null,negotiationCounter=0;
+let liveRoom = null;
+let sdkPromise = null;
+let permissionsKey = null;
+let audible = new Map();
+const sdkUrl = document.currentScript?.src ? new URL('livekit-client-2.23.0.js', document.currentScript.src).href : 'livekit-client-2.23.0.js';
+function loadSDK() {
+ if (!sdkPromise) {
+  sdkPromise = new Promise((resolve, reject) => {
+   const script = document.createElement('script');
+   script.src = sdkUrl;
+   script.onload = () => window.LivekitClient ? resolve(window.LivekitClient) : reject(Error('Voice library failed to initialize.'));
+   script.onerror = () => reject(Error('Voice library could not load. Please retry.'));
+   document.head.appendChild(script);
+  }).catch(error => { sdkPromise = null; throw error; });
+ }
+ return sdkPromise;
+}
+function closeLiveRoom() {
+ const room = liveRoom;
+ liveRoom = null;
+ permissionsKey = null;
+ audible.clear();
+ if (room) void room.disconnect(false).catch(() => {});
+}
+function denyLiveAudio(room) {
+ room.localParticipant.setTrackSubscriptionPermissions(false, []);
+ permissionsKey = '';
+ audible.clear();
+ for (const id of [...peers.keys()]) drop(id);
+}
+function receiveLiveTrack(track, person, g) {
+  if (peers.get(person.id)?.liveTrack === track) return;
+  drop(person.id);
+  const audio = document.createElement('audio');
+  audio.autoplay = true;
+  audio.setAttribute('playsinline', '');
+  panel.appendChild(audio);
+  const peer = {audio, person, gain:gain(person), liveTrack:track};
+  peers.set(person.id, peer);
+  attachIncoming(peer, new MediaStream([track.mediaStreamTrack]), g);
+}
+async function openLiveRoom(joined, g) {
+ const sdk = await loadSDK();
+ if (!alive(g)) return;
+ const room = new sdk.Room({stopLocalTrackOnUnpublish:false});
+ liveRoom = room;
+ const current = () => alive(g) && liveRoom === room;
+ room.on(sdk.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+  const person = audible.get(participant.identity);
+  if (!current() || !person || track.kind !== 'audio') {
+   publication.setSubscribed(false);
+   return;
+  }
+  receiveLiveTrack(track, person, g);
+ });
+ room.on(sdk.RoomEvent.TrackUnsubscribed, (track, _, participant) => {
+  if (current() && peers.get(participant.identity)?.liveTrack === track) drop(participant.identity);
+ });
+ room.on(sdk.RoomEvent.Reconnecting, () => {
+  if (current()) { denyLiveAudio(room); status('Reconnecting to LiveKit voice…'); }
+ });
+ room.on(sdk.RoomEvent.Disconnected, () => {
+  if (current()) stop('Voice disconnected. Tap Turn on mic to rejoin.');
+ });
+ status('Connecting to LiveKit voice…');
+ try {
+  await room.connect(joined.url, joined.accessToken, {autoSubscribe:false});
+  if (!current()) { await room.disconnect(false); return; }
+  denyLiveAudio(room);
+  await room.localParticipant.publishTrack(stream.getAudioTracks()[0], {source:sdk.Track.Source.Microphone});
+ } catch (error) {
+  if (current()) throw Error('LiveKit could not start voice. ' + error.message);
+ }
+}
+function updateLiveAudio(data, g) {
+ const room = liveRoom;
+ if (!room || room.state !== 'connected') return;
+ const nearby = data.peers.filter(person => person.private || person.distance < config.settings.maxDistance);
+ const allowed = nearby.filter(person => person.canSend).map(person => person.id).sort();
+ const key = allowed.join(',');
+ if (key !== permissionsKey) {
+  room.localParticipant.setTrackSubscriptionPermissions(false, allowed.map(id => ({participantIdentity:id, allowAll:true})));
+  permissionsKey = key;
+ }
+ audible = new Map(nearby.filter(person => person.canHear).map(person => [person.id, person]));
+ for (const [id, peer] of peers) {
+  const person = audible.get(id);
+  if (!person) { drop(id); continue; }
+  peer.gain = gain(person);
+  spatial(peer, person, data.local);
+  volume(peer);
+ }
+ for (const [id, participant] of room.remoteParticipants) {
+  for (const publication of participant.audioTrackPublications.values()) {
+   const wanted = audible.has(id);
+   if (publication.isDesired !== wanted) publication.setSubscribed(wanted);
+   if (wanted && publication.isSubscribed && publication.track) {
+    receiveLiveTrack(publication.track, audible.get(id), g);
+   }
+  }
+ }
+}
 function gain(person){if(person.canHear===false)return 0;const settings=config?.settings||{maxDistance:5,fadeStart:3};return person.private?1:Math.max(0,Math.min(1,(settings.maxDistance-person.distance)/(settings.maxDistance-settings.fadeStart)));}
 function sendPermission(peer,person){
  const allowed=person.canSend!==false;if(peer.canSend===allowed)return;peer.canSend=allowed;
@@ -22,7 +124,7 @@ function voiceInfo(profile,networkId){
  const peer=[...peers.values()].find(p=>networkId?p.person?.id===networkId:p.person?.profile===profile),info=voiceStates.find(p=>networkId?p.id===networkId:p.profile===profile)||{};
  let speaking=false;
  if(peer?.analyser){const a=new Uint8Array(peer.analyser.fftSize);peer.analyser.getByteTimeDomainData(a);let e=0;for(const v of a)e+=((v-128)/128)**2;if(Math.sqrt(e/a.length)>.015)peer.speakingUntil=Date.now()+250;speaking=Date.now()<(peer.speakingUntil||0);}
- return {...info,connected:peer?.pc.connectionState==='connected',speaking:peer? speaking: false,source:!!peer?.source,distance:peer?.person?.distance??info.distance,gain:peer?.gain||0,networkId:peer?.person?.id||info.id,debug:!!config?.debug,callState};
+ return {...info,connected:!!peer?.liveTrack || peer?.pc?.connectionState==='connected',speaking:peer? speaking: false,source:!!peer?.source,distance:peer?.person?.distance??info.distance,gain:peer?.gain||0,networkId:peer?.person?.id||info.id,debug:!!config?.debug,callState};
 }
 let testTone=null, micSource=null, micAnalyser=null, micSink=null, micTimer=null;
 function unlockAudio(){
@@ -38,7 +140,7 @@ function unlockAudio(){
 }
 function volume(peer){const value=(peer.person?.private||publicListening?peer.gain:0)*Number(get("voice-volume").value);if(peer.gainNode){if(peer.gainNode.gain.setTargetAtTime)peer.gainNode.gain.setTargetAtTime(value,audioContext.currentTime,.06);else peer.gainNode.gain.value=value;}else peer.audio.volume=value;}
 const panel=document.createElement('details');panel.id='voice-panel';panel.hidden=true;
-panel.innerHTML=`<summary aria-label="Nearby voice controls"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="16" rx="4"/><path d="M8 14v2a8 8 0 0 0 16 0v-2M16 24v5M11 29h10"/></svg><span id="voice-badge">Off</span></summary><div class="voice-controls"><strong>Nearby voice</strong><p id="voice-status" role="status" aria-live="polite">Turn on your mic to speak to nearby players.</p><button id="voice-enable" type="button">Turn on mic</button><button id="voice-end-private" type="button" hidden>End private chat</button><button id="voice-mute" type="button" hidden>Mute mic</button><div id="voice-mic-check" hidden><label for="voice-mic-level">Your microphone</label><meter id="voice-mic-level" min="0" max="1" value="0"></meter><small id="voice-mic-status" role="status">Speak to check your mic.</small></div><button id="voice-hear" type="button" hidden>Resume sound</button><details class="voice-settings"><summary>Sound settings</summary><label>Listening volume <output id="voice-level">100%</output><input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><button id="voice-public-listen" type="button">Mute public listening</button><button id="voice-restart" type="button" hidden>Reconnect microphone</button><button id="voice-test" type="button">Test speaker</button><p id="voice-output-status" role="status"></p><button id="voice-stop" type="button" hidden>Disconnect voice</button><p class="voice-note">Turning on your mic shares your voice with players within 5 metres. No recording by Mini UK. Direct connections share network addresses. Use headphones.</p></details></div>`;
+panel.innerHTML=`<summary aria-label="Nearby voice controls"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="16" rx="4"/><path d="M8 14v2a8 8 0 0 0 16 0v-2M16 24v5M11 29h10"/></svg><span id="voice-badge">Off</span></summary><div class="voice-controls"><strong>Nearby voice</strong><p id="voice-status" role="status" aria-live="polite">Turn on your mic to speak to nearby players.</p><button id="voice-enable" type="button">Turn on mic</button><button id="voice-end-private" type="button" hidden>End private chat</button><button id="voice-mute" type="button" hidden>Mute mic</button><div id="voice-mic-check" hidden><label for="voice-mic-level">Your microphone</label><meter id="voice-mic-level" min="0" max="1" value="0"></meter><small id="voice-mic-status" role="status">Speak to check your mic.</small></div><button id="voice-hear" type="button" hidden>Resume sound</button><details class="voice-settings"><summary>Sound settings</summary><label>Listening volume <output id="voice-level">100%</output><input id="voice-volume" type="range" min="0" max="1" step="0.05" value="1"></label><button id="voice-public-listen" type="button">Mute public listening</button><button id="voice-restart" type="button" hidden>Reconnect microphone</button><button id="voice-test" type="button">Test speaker</button><p id="voice-output-status" role="status"></p><button id="voice-stop" type="button" hidden>Disconnect voice</button><p class="voice-note">Turning on your mic shares your voice with players within 5 metres. No recording by Mini UK. Voice uses your microphone while connected. Use headphones.</p></details></div>`;
 document.getElementById('stage').appendChild(panel);
 // Keep mobile gestures on the audio controls away from the game canvas.
 for(const event of ['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend','keydown','keyup'])
@@ -65,7 +167,7 @@ voiceStyle.textContent=`
 `;
 panel.appendChild(voiceStyle);
 const get=id=>document.getElementById(id), status=text=>get('voice-status').textContent=text;
-function updateRangeNote(){const note=panel.querySelector('.voice-note');if(note)note.textContent=`Turning on your mic shares your voice with players within ${config?.settings?.maxDistance||5} metres. No recording by Mini UK. Direct connections share network addresses. Use headphones.`;}
+function updateRangeNote(){const note=panel.querySelector('.voice-note');if(note)note.textContent=`Turning on your mic shares your voice with players within ${config?.settings?.maxDistance||5} metres. No recording by Mini UK. ${config?.provider === 'livekit' ? 'Voice is carried by LiveKit.' : 'Direct connections share network addresses.'} Use headphones.`;}
 function micUnavailable(){return !!stream&&stream.getAudioTracks().some(t=>t.muted||t.readyState==='ended');}
 function controls(){
  get('voice-end-private').hidden=!privateCall;
@@ -106,9 +208,10 @@ async function request(path,data={},s=session){
  try{const response=await fetch(s.endpoint+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:s.token,epoch,...data}),signal:controller.signal,cache:'no-store'});
  const value=await response.json();if(!response.ok)throw Error(value.error||'Voice server unavailable.');return value;}finally{clearTimeout(timeout);}
 }
-function drop(id){const peer=peers.get(id);if(!peer)return;peers.delete(id);peer.pc.close();peer.source?.disconnect();peer.gainNode?.disconnect();peer.panner?.disconnect();peer.analyser?.disconnect();peer.audio.srcObject=null;peer.audio.remove();}
+function drop(id){const peer=peers.get(id);if(!peer)return;peers.delete(id);peer.pc?.close();peer.source?.disconnect();peer.gainNode?.disconnect();peer.panner?.disconnect();peer.analyser?.disconnect();peer.audio.srcObject=null;peer.audio.remove();}
 function stop(message='Voice is off. Your microphone has been released.',reconnect=false){
  const old=session, oldEpoch=epoch;generation++;pending=false;clearTimeout(timer);timer=null;
+ closeLiveRoom();
  clearMicMeter();
  if(previousAudioSession!==null){try{navigator.audioSession.type=previousAudioSession;}catch{}previousAudioSession=null;}
  if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;
@@ -122,6 +225,13 @@ function stop(message='Voice is off. Your microphone has been released.',reconne
 function alive(g){return g===generation&&!!stream&&!!session;}
 function report(){
  if(micUnavailable()){status('Your microphone is paused by the device. Open Sound settings → Reconnect microphone.');return;}
+ if (config?.provider === 'livekit') {
+  if (liveRoom?.state !== 'connected') { status('Connecting to LiveKit voice…'); return; }
+  const count = peers.size;
+  status(privateCall ? (count ? 'Private voice connected.' : 'Waiting for the other microphone in this call.') :
+    (count ? 'Nearby microphones connected: ' + count : 'LiveKit connected. Waiting for nearby microphones within ' + config.settings.maxDistance + ' metres.'));
+  return;
+ }
  if(privateCall&&callState!=='Connected'){status('Private call '+callState.toLowerCase()+'. Waiting for both audio connections.');return;}
  const connected=[...peers.values()].filter(p=>p.pc.connectionState==='connected').length;
  const failed=[...peers.values()].some(p=>p.pc.connectionState==='failed'||p.pc.connectionState==='disconnected');
@@ -193,8 +303,14 @@ async function offer(person,g){
 async function poll(g){
  if(!alive(g))return;
  try{
-  const data=await request('/voice/poll',{ack,muted,speaking:localSpeaking,connected:[...peers].filter(([,p])=>p.pc.connectionState==='connected').map(([id])=>id)});if(!alive(g))return;errors=0;stream.getAudioTracks().forEach(t=>t.enabled=!muted);voiceStates=data.states||[];lastLocal=data.local;callState=data.callState||'Idle';
+  const data=await request('/voice/poll',{ack,muted,speaking:localSpeaking,connected:[...peers].filter(([,p])=>(p.liveTrack || p.pc?.connectionState==='connected')).map(([id])=>id)});if(!alive(g))return;errors=0;stream.getAudioTracks().forEach(t=>t.enabled=!muted);voiceStates=data.states||[];lastLocal=data.local;callState=data.callState||'Idle';
   if(privateCall&&data.callEnded){await finishPrivate();return;}
+  if (config.provider === 'livekit') {
+   updateLiveAudio(data, g);
+   report();
+   timer = setTimeout(() => poll(g), config.settings.pollMs);
+   return;
+  }
   const present=new Map(data.peers.map(p=>[p.id,p]));
   for(const [id,peer] of peers){if(!present.has(id)||present.get(id).epoch!==peer.epoch){drop(id);continue;}peer.gain=gain(present.get(id));sendPermission(peer,present.get(id));spatial(peer,present.get(id),data.local);volume(peer);}
   for(const message of data.messages){
@@ -234,7 +350,7 @@ async function poll(g){
    }
   }
   report();
- }catch(error){if(!alive(g))return;stream.getAudioTracks().forEach(t=>t.enabled=false);for(const peer of peers.values()){peer.gain=0;volume(peer);}errors++;status(error.message);if(errors>=3){callState='Failed';stop('Voice disconnected. Enable voice to reconnect.');return;}}
+ }catch(error){if(!alive(g))return;if(liveRoom)denyLiveAudio(liveRoom);stream.getAudioTracks().forEach(t=>t.enabled=false);for(const peer of peers.values()){peer.gain=0;volume(peer);}errors++;status(error.message);if(errors>=3){callState='Failed';stop('Voice disconnected. Enable voice to reconnect.');return;}}
  if(alive(g))timer=setTimeout(()=>poll(g),config?.settings?.pollMs||350);
 }
 async function enable(){
@@ -252,7 +368,12 @@ async function enable(){
   if(document.hidden)throw Error('Return to the game and tap Enable voice again.');
   if(g!==generation){captured.getTracks().forEach(track=>track.stop());return;}
   stream=captured;const joined=await request('/voice/join',{call:privateCall},joining);
-  if(!alive(g)){request('/voice/leave',{epoch:joined.epoch},joining).catch(()=>{});return;}config=joined;updateRangeNote();epoch=config.epoch;muted=false;pending=false;
+  if(!alive(g)){request('/voice/leave',{epoch:joined.epoch},joining).catch(()=>{});return;}config=joined;updateRangeNote();epoch=config.epoch;muted=false;
+  if (config.provider === 'livekit') {
+   await openLiveRoom(joined, g);
+   if (!alive(g)) return;
+  }
+  pending=false;
   stream.getAudioTracks().forEach(track=>{
    track.onended=()=>{if(alive(g))stop('Microphone disconnected. Tap Turn on mic to retry.');};
    track.onmute=track.onunmute=()=>{if(alive(g)){controls();report();}};
@@ -311,11 +432,17 @@ async function switchMode(id){
  const savedMuted=muted;pending=false;generation++;const g=generation;clearTimeout(timer);timer=null;
  // Close every old transport BEFORE publishing in the new mode; volume is not a privacy boundary.
  stream?.getAudioTracks().forEach(t=>t.enabled=false);
+ closeLiveRoom();
  for(const key of [...peers.keys()])drop(key);
  privateCall=id;callState=id?'Connecting':'Idle';ack=0;voiceStates=[];
  panel.open=!window.MiniUKSocial;panel.querySelector('strong').textContent=id?'Private voice':'Public nearby voice';controls();
  if(!stream){status(id?'Private call accepted. Tap Turn on mic to connect.':'Public voice selected. Tap Turn on mic.');return;}
- try{const joined=await request('/voice/join',{call:id});if(!alive(g))return;config=joined;updateRangeNote();epoch=joined.epoch;muted=savedMuted;stream.getAudioTracks().forEach(t=>t.enabled=!muted);controls();monitorMic(g);void poll(g);}
+ try{const joined=await request('/voice/join',{call:id});if(!alive(g))return;config=joined;updateRangeNote();epoch=joined.epoch;
+ if (config.provider === 'livekit') {
+  await openLiveRoom(joined, g);
+  if (!alive(g)) return;
+ }
+ muted=savedMuted;stream.getAudioTracks().forEach(t=>t.enabled=!muted);controls();monitorMic(g);void poll(g);}
  catch(e){if(g===generation){callState='Failed';stop('Voice could not switch safely. Tap Turn on mic to retry.');}}
 }
 async function finishPrivate(){
