@@ -7,6 +7,8 @@ import hmac
 import hashlib
 import base64
 import re
+import json
+from urllib.parse import urlsplit
 
 class VoiceError(Exception):
     def __init__(self, status, message):
@@ -31,6 +33,31 @@ def ice_config(player_id):
         if username and credential:
             servers.append(dict(urls=urls, username=username, credential=credential))
     return dict(iceServers=servers, relayAvailable=len(servers) > 1)
+
+def voice_transport(player, call):
+    url = os.environ.get('LIVEKIT_URL', '').strip()
+    key = os.environ.get('LIVEKIT_API_KEY', '').strip()
+    secret = os.environ.get('LIVEKIT_API_SECRET', '')
+    if not any((url, key, secret)):
+        return ice_config(player['id'])
+    endpoint = urlsplit(url)
+    if not (endpoint.scheme == 'wss' and endpoint.hostname and key and secret):
+        raise VoiceError(503, 'LiveKit voice is missing its server configuration.')
+    room = 'miniuk-private-' + str(call) if call else 'miniuk-world-' + player['room']
+    now = int(time.time())
+    claims = {
+        'iss': key, 'sub': player['id'], 'nbf': now - 5, 'exp': now + 300,
+        'video': {'roomJoin': True, 'room': room, 'canPublish': True,
+                  'canPublishSources': ['microphone'], 'canSubscribe': True,
+                  'canPublishData': False},
+    }
+    def encode(value):
+        return base64.urlsafe_b64encode(value).rstrip(b'=').decode()
+    header = encode(b'{"alg":"HS256","typ":"JWT"}')
+    payload = encode(json.dumps(claims, separators=(',', ':')).encode())
+    body = header + '.' + payload
+    signature = encode(hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest())
+    return {'provider': 'livekit', 'url': url, 'accessToken': body + '.' + signature}
 
 def distance(a,b):
     return math.sqrt(sum((a[k]-b[k])**2 for k in ('x','y','z')))
@@ -89,8 +116,9 @@ class Voice:
                     if not player.get('authenticated'):raise VoiceError(403,'Sign in with Google for private calls.')
                     if not rooms.social.active_call(call,player['profile']):raise VoiceError(403,'Private call was not accepted or has ended.')
             if call and any(t!=token and v.get('call')==call and rooms.sessions[t]['profile']==player['profile'] for t,v in self.members.items()):raise VoiceError(409,'This account is already in this call on another device.')
+            transport = voice_transport(player, call)
             self.members[token] = dict(epoch=secrets.token_hex(8), seen=now, queue=[], hits=[],call=call,muted=True,speaking=False,connected=[])
-            return dict(epoch=self.members[token]['epoch'], settings=dict(maxDistance=self.max_distance,fadeStart=self.fade_start,exitDistance=self.exit_distance,pollMs=self.interval), debug=os.environ.get('MINIUK_VOICE_DEBUG')=='1', **ice_config(player['id']))
+            return dict(epoch=self.members[token]['epoch'], settings=dict(maxDistance=self.max_distance,fadeStart=self.fade_start,exitDistance=self.exit_distance,pollMs=self.interval), debug=os.environ.get('MINIUK_VOICE_DEBUG')=='1', **transport)
         member = self.members.get(token)
         if member is None or data.get('epoch') != member['epoch']:
             raise VoiceError(409, 'Voice session ended. Turn voice off and on to reconnect.')
